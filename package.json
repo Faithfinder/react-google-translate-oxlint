@@ -1,0 +1,49 @@
+{
+  "name": "oxlint-plugin-react-google-translate",
+  "version": "0.1.0",
+  "description": "Oxlint plugin that flags JSX patterns which crash React when the Google Translate browser extension is active.",
+  "keywords": [
+    "oxlint",
+    "oxlint-plugin",
+    "react",
+    "google-translate",
+    "machine-translation",
+    "lint",
+    "jsx",
+    "NotFoundError",
+    "crash"
+  ],
+  "author": "Maksym Dolynchuk",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dolynchuk/oxlint-plugin-react-google-translate.git"
+  },
+  "homepage": "https://github.com/dolynchuk/oxlint-plugin-react-google-translate#readme",
+  "bugs": {
+    "url": "https://github.com/dolynchuk/oxlint-plugin-react-google-translate/issues"
+  },
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js"
+  },
+  "files": [
+    "index.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "peerDependencies": {
+    "oxlint": ">=1.0.0"
+  },
+  "devDependencies": {
+    "oxlint": "^1.69.0"
+  }
+}

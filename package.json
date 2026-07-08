@@ -17,11 +17,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/dolynchuk/oxlint-plugin-react-google-translate.git"
+    "url": "git+https://github.com/dolynchuk/react-google-translate-oxlint.git"
   },
-  "homepage": "https://github.com/dolynchuk/oxlint-plugin-react-google-translate#readme",
+  "homepage": "https://github.com/dolynchuk/react-google-translate-oxlint#readme",
   "bugs": {
-    "url": "https://github.com/dolynchuk/oxlint-plugin-react-google-translate/issues"
+    "url": "https://github.com/dolynchuk/react-google-translate-oxlint/issues"
   },
   "type": "module",
   "main": "./index.js",

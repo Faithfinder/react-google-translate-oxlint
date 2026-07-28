@@ -15,31 +15,283 @@
  * Fix: wrap the conditionally rendered text in an element, e.g.
  *   {cond ? 'foo' : 'bar'} <span>x</span>
  *   -> {cond ? <span>foo</span> : <span>bar</span>} <span>x</span>
+ *
+ * ---------------------------------------------------------------------------
+ * What actually throws, verified against react-dom 18.3.1
+ * ---------------------------------------------------------------------------
+ * A bare text node is only a hazard if React creates a `HostText` fiber for it
+ * *and* then removes it or uses it as an `insertBefore` reference. Two separate
+ * hazards follow, and they need separate checks:
+ *
+ *   H1 removeChild  — a bare text node exists at this position in one state and
+ *                     not in another, so React deletes it. This needs the
+ *                     branches of the conditional to *differ*: `{c ? 'a' : ''}`
+ *                     throws, `{c ? 'a' : 'b'}` does not, because React reuses
+ *                     the single HostText fiber and only assigns `nodeValue`.
+ *
+ *   H2 insertBefore — a bare text node exists at this position and a *preceding*
+ *                     sibling mounts. `getHostSibling` searches forward only, so
+ *                     this is asymmetric: a conditional *before* the text is a
+ *                     hazard, a conditional *after* it is not. The text itself
+ *                     need not be conditional at all.
+ *
+ * Two structural facts the rule has to respect:
+ *   - `''` renders nothing. The reconciler's guard is
+ *     `typeof newChild === 'string' && newChild !== ''`, so an empty string
+ *     never creates a HostText fiber and can never be the node that throws.
+ *   - When a host element's `children` prop is a *single* string or number,
+ *     `shouldSetTextContent` makes React manage the text through the parent's
+ *     `textContent` and no HostText fiber is created at all.
  */
 
 const startOf = (node) => (node.range ? node.range[0] : node.start);
 
+/**
+ * What does this expression contribute at its JSX child position?
+ *
+ * TEXT     - a bare text node is definitely produced.
+ * NO_TEXT  - definitely no bare text node (an element, `''`, null, false, ...).
+ * UNKNOWN  - undecidable without type information.
+ */
+const TEXT = "text";
+const NO_TEXT = "no-text";
+const UNKNOWN = "unknown";
+
+const isJsx = (node) =>
+  !!node && (node.type === "JSXElement" || node.type === "JSXFragment");
+
+/** Collect `return` statements belonging to this function, not to nested ones. */
+const collectOwnReturns = (node, out) => {
+  if (!node || typeof node.type !== "string") return out;
+  if (
+    node.type === "FunctionDeclaration" ||
+    node.type === "FunctionExpression" ||
+    node.type === "ArrowFunctionExpression"
+  ) {
+    return out;
+  }
+  if (node.type === "ReturnStatement") {
+    out.push(node);
+    return out;
+  }
+  for (const key of Object.keys(node)) {
+    if (key === "parent") continue;
+    const value = node[key];
+    if (Array.isArray(value)) {
+      for (const item of value) collectOwnReturns(item, out);
+    } else if (value && typeof value.type === "string") {
+      collectOwnReturns(value, out);
+    }
+  }
+  return out;
+};
+
+/** True when every path out of this callback returns JSX. */
+const callbackReturnsJsx = (fn) => {
+  if (
+    !fn ||
+    (fn.type !== "ArrowFunctionExpression" && fn.type !== "FunctionExpression")
+  ) {
+    return false;
+  }
+  if (fn.body && fn.body.type !== "BlockStatement") return isJsx(fn.body);
+  const returns = collectOwnReturns(fn.body, []);
+  return returns.length > 0 && returns.every((r) => isJsx(r.argument));
+};
+
+/**
+ * `items.map(x => <li/>)` produces `ReactElement[]`, never a bare text node.
+ * Only claimed when the callback demonstrably returns JSX — `items.map(String)`
+ * or a callback returning a string stays UNKNOWN.
+ */
+const isJsxReturningIteratorCall = (node) => {
+  if (!node || node.type !== "CallExpression") return false;
+  const callee =
+    node.callee && node.callee.type === "ChainExpression"
+      ? node.callee.expression
+      : node.callee;
+  if (!callee || callee.type !== "MemberExpression") return false;
+  const property = callee.property;
+  const name =
+    property &&
+    (property.name ||
+      (property.type === "Literal" ? property.value : undefined));
+  if (name !== "map" && name !== "flatMap") return false;
+  return callbackReturnsJsx(node.arguments && node.arguments[0]);
+};
+
+const isI18nCall = (node) =>
+  !!node &&
+  node.type === "CallExpression" &&
+  node.callee &&
+  node.callee.type === "Identifier" &&
+  (node.callee.name === "formatMessage" || node.callee.name === "t") &&
+  node.arguments.length > 0;
+
+const worst = (a, b) => {
+  if (a === TEXT || b === TEXT) return TEXT;
+  if (a === UNKNOWN || b === UNKNOWN) return UNKNOWN;
+  return NO_TEXT;
+};
+
+const contribution = (node) => {
+  if (!node) return NO_TEXT;
+  switch (node.type) {
+    case "Literal": {
+      if (node.value === null || typeof node.value === "boolean") {
+        return NO_TEXT;
+      }
+      if (typeof node.value === "string") {
+        // Only `''` renders nothing. `{' '}` really does create a text node —
+        // unlike whitespace-only *JSX* text, which the parser strips.
+        return node.value === "" ? NO_TEXT : TEXT;
+      }
+      if (typeof node.value === "number") return TEXT;
+      return NO_TEXT;
+    }
+    case "JSXText":
+      return node.value.trim() === "" ? NO_TEXT : TEXT;
+    case "TemplateLiteral":
+      return TEXT;
+    case "JSXElement":
+      return NO_TEXT;
+    case "JSXFragment":
+      return node.children.reduce(
+        (acc, child) => worst(acc, contribution(child)),
+        NO_TEXT
+      );
+    case "JSXExpressionContainer":
+      return contribution(node.expression);
+    case "JSXEmptyExpression":
+      return NO_TEXT;
+    case "ArrayExpression":
+      return (node.elements || []).reduce(
+        (acc, element) => worst(acc, contribution(element)),
+        NO_TEXT
+      );
+    case "ConditionalExpression":
+      return worst(contribution(node.consequent), contribution(node.alternate));
+    case "LogicalExpression":
+      // `a && b` renders only `b`; `a || b` and `a ?? b` can render either side.
+      return node.operator === "&&"
+        ? contribution(node.right)
+        : worst(contribution(node.left), contribution(node.right));
+    case "ChainExpression":
+      return contribution(node.expression);
+    case "CallExpression":
+      if (isI18nCall(node)) return TEXT;
+      if (isJsxReturningIteratorCall(node)) return NO_TEXT;
+      return UNKNOWN;
+    case "Identifier":
+      return node.name === "undefined" ? NO_TEXT : UNKNOWN;
+    default:
+      return UNKNOWN;
+  }
+};
+
+/**
+ * Whether an UNKNOWN contribution should still be reported.
+ *
+ * Without a type-checker we cannot tell `{cond ? obj.label : <b/>}` (a hazard)
+ * from `{cond ? obj.icon : <b/>}` (not one). This keeps the node kinds the rule
+ * has always reported on — member and optional-chain expressions — rather than
+ * widening to every identifier, which would flag every `ReactNode` prop.
+ */
+const reportsWhenUnknown = (node) =>
+  !!node &&
+  (node.type === "MemberExpression" || node.type === "ChainExpression");
+
+/** Flatten nested conditionals into the set of expressions that can render. */
+const renderableBranches = (expr, out = []) => {
+  if (!expr) return out;
+  if (expr.type === "ConditionalExpression") {
+    renderableBranches(expr.consequent, out);
+    renderableBranches(expr.alternate, out);
+    return out;
+  }
+  if (expr.type === "LogicalExpression") {
+    if (expr.operator === "&&") {
+      // The left side is the test. The falsy case renders nothing, and that is
+      // a real branch — it is what makes the text node mount and unmount.
+      renderableBranches(expr.right, out);
+      out.push(null);
+      return out;
+    }
+    renderableBranches(expr.left, out);
+    renderableBranches(expr.right, out);
+    return out;
+  }
+  out.push(expr);
+  return out;
+};
+
+/**
+ * A branch producing exactly one bare text node and nothing else. When *every*
+ * branch has this shape React reuses a single HostText fiber across the update
+ * and only assigns `nodeValue`, so nothing is inserted or removed and H1 cannot
+ * fire. Fragments and arrays are excluded: they can change how many text nodes
+ * exist, which does move nodes around.
+ */
+const isSingleTextBranch = (node) =>
+  !!node &&
+  contribution(node) === TEXT &&
+  (node.type === "Literal" ||
+    node.type === "TemplateLiteral" ||
+    isI18nCall(node));
+
+/** The branch nodes that can mount or unmount a bare text node (hazard H1). */
+const togglingTextBranches = (expr) => {
+  const branches = renderableBranches(expr);
+  if (branches.length < 2) return [];
+
+  const flagged = branches.filter((branch) => {
+    const c = contribution(branch);
+    if (c === TEXT) return true;
+    if (c !== UNKNOWN) return false;
+    if (reportsWhenUnknown(branch)) return true;
+    // `{cond ? maybeText : ''}` — every other branch renders nothing at all, so
+    // if this one is text it definitely mounts and unmounts, and we cannot prove
+    // it is not. This is the position the rule has always reported; it used to
+    // blame the `''`, which is never the node that throws.
+    return branches.every(
+      (other) => other === branch || contribution(other) === NO_TEXT
+    );
+  });
+  if (flagged.length === 0) return [];
+
+  // Every branch is a single bare text node: the fiber is reused, not moved.
+  if (branches.every(isSingleTextBranch)) return [];
+
+  return flagged;
+};
+
+const isConditional = (node) =>
+  !!node &&
+  (node.type === "ConditionalExpression" || node.type === "LogicalExpression");
+
+/**
+ * Whitespace that is not a meaningful sibling. Unchanged from the original rule:
+ * `''` is excluded deliberately, so it still counts as a sibling for
+ * `hasSiblings`. Whether `''` is a *text node* is a separate question, answered
+ * by `contribution` — which is the distinction the rule used to conflate.
+ */
 const isWhitespace = (node) =>
-  (node.type === "Literal" &&
-    typeof node.value === "string" &&
-    node.value !== "" &&
-    node.value.trim() === "") ||
-  (node.type === "JSXText" &&
-    typeof node.value === "string" &&
-    node.value !== "" &&
-    node.value.trim() === "");
+  ((node.type === "Literal" && typeof node.value === "string") ||
+    (node.type === "JSXText" && typeof node.value === "string")) &&
+  node.value !== "" &&
+  node.value.trim() === "";
 
-const isConditionallyRendered = (node) =>
-  node.parent &&
-  (node.parent.type === "ConditionalExpression" ||
-    node.parent.type === "LogicalExpression");
+/**
+ * A conditional whose every branch is a single bare text node keeps exactly one
+ * HostText fiber alive across updates: React only assigns `nodeValue`, so it
+ * never inserts or removes a host node. Such a sibling cannot trigger H2 in the
+ * nodes that follow it — verified against react-dom 18.3.1, in contrast to
+ * `{c ? <a/> : <b/>}` and `{c && <i/>}`, which both do.
+ */
+const isStableTextConditional = (expr) =>
+  isConditional(expr) && renderableBranches(expr).every(isSingleTextBranch);
 
-const isChildOfJSXExpressionContainer = (node) =>
-  node.parent && node.parent.type === "JSXExpressionContainer";
-
-const isChildOfJSXElement = (node) =>
-  node.parent && node.parent.type === "JSXElement";
-
+/** Does the JSX parent of this child hold any other meaningful child? */
 const hasSiblings = (node) =>
   node.parent &&
   node.parent.children &&
@@ -48,33 +300,10 @@ const hasSiblings = (node) =>
     (child) => !Object.is(child, node) && !isWhitespace(child)
   );
 
-// Climb through nested conditionals so `a ? b : (c ? d : e)` reports against the
-// outermost expression that actually sits in the JSX tree.
-const getOutermostConditional = (node) => {
-  let current = node;
-  while (
-    current.parent &&
-    (current.parent.type === "ConditionalExpression" ||
-      current.parent.type === "LogicalExpression")
-  ) {
-    current = current.parent;
-  }
-  return current;
-};
-
-const isProblematicConditional = (node) => {
-  if (!isConditionallyRendered(node)) return false;
-  const outermost = getOutermostConditional(node);
-  return (
-    isChildOfJSXExpressionContainer(outermost) &&
-    isChildOfJSXElement(outermost.parent) &&
-    hasSiblings(outermost.parent)
-  );
-};
-
-// A static JSX text node is unsafe when a conditional expression precedes it as
-// a sibling — Translate wraps the text, and React's update to the conditional
-// sibling then trips over the wrapper.
+/**
+ * Hazard H2: can something mount *before* this position? `getHostSibling`
+ * searches forward only, so only preceding siblings matter.
+ */
 const conditionalSiblingsPrecedeNode = (node) =>
   node.parent &&
   node.parent.children &&
@@ -83,29 +312,9 @@ const conditionalSiblingsPrecedeNode = (node) =>
     .some(
       (child) =>
         child.type === "JSXExpressionContainer" &&
-        child.expression &&
-        (child.expression.type === "ConditionalExpression" ||
-          child.expression.type === "LogicalExpression")
+        isConditional(child.expression) &&
+        !isStableTextConditional(child.expression)
     );
-
-// True when `node` is the *test* of a conditional (e.g. `a` in `a && b`), which
-// is evaluated, not rendered — so it must never be flagged.
-const isCondition = (node) => {
-  let current = node;
-  while (current.parent && current.parent.type === "LogicalExpression") {
-    if (Object.is(current.parent.left, current)) return true;
-    current = current.parent;
-  }
-  if (current.parent && current.parent.type === "ConditionalExpression") {
-    return Object.is(current.parent.test, current);
-  }
-  return false;
-};
-
-const isBinaryExpression = (node) =>
-  node.parent && node.parent.type === "BinaryExpression"
-    ? isCondition(node.parent)
-    : false;
 
 const CONDITIONAL_TEXT_NODE = "conditional-text-node";
 const TEXT_NODE_PRECEDED_BY_CONDITIONAL = "text-node-preceded-by-conditional";
@@ -127,19 +336,34 @@ const noConditionalTextNodesWithSiblings = {
   },
   create(context) {
     return {
-      Literal(node) {
+      JSXExpressionContainer(node) {
+        const parent = node.parent;
         if (
-          node.value !== null &&
-          typeof node.value !== "boolean" &&
-          !isWhitespace(node) &&
-          isProblematicConditional(node)
+          !parent ||
+          (parent.type !== "JSXElement" && parent.type !== "JSXFragment")
         ) {
-          context.report({ node, messageId: CONDITIONAL_TEXT_NODE });
+          return;
         }
-      },
-      TemplateLiteral(node) {
-        if (!isWhitespace(node) && isProblematicConditional(node)) {
-          context.report({ node, messageId: CONDITIONAL_TEXT_NODE });
+        if (!hasSiblings(node)) return;
+
+        // H1 — a bare text node mounts or unmounts at this position.
+        if (isConditional(node.expression)) {
+          for (const branch of togglingTextBranches(node.expression)) {
+            context.report({ node: branch, messageId: CONDITIONAL_TEXT_NODE });
+          }
+        }
+
+        // H2 — a bare text node sits here and a preceding sibling can mount.
+        // This applies however the text got here, conditional or not, which is
+        // why `{c ? 'a' : 'b'}` is exempt from H1 but not from this.
+        if (
+          contribution(node.expression) === TEXT &&
+          conditionalSiblingsPrecedeNode(node)
+        ) {
+          context.report({
+            node,
+            messageId: TEXT_NODE_PRECEDED_BY_CONDITIONAL,
+          });
         }
       },
       JSXText(node) {
@@ -152,40 +376,6 @@ const noConditionalTextNodesWithSiblings = {
             node,
             messageId: TEXT_NODE_PRECEDED_BY_CONDITIONAL,
           });
-        }
-      },
-      MemberExpression(node) {
-        if (isCondition(node) || isBinaryExpression(node)) return;
-        if (isProblematicConditional(node)) {
-          context.report({ node, messageId: CONDITIONAL_TEXT_NODE });
-        }
-      },
-      ChainExpression(node) {
-        if (isCondition(node) || isBinaryExpression(node)) return;
-        if (isProblematicConditional(node)) {
-          context.report({ node, messageId: CONDITIONAL_TEXT_NODE });
-        }
-      },
-      CallExpression(node) {
-        // Without type info, only flag well-known i18n helpers that return text.
-        if (
-          node.callee &&
-          node.callee.type === "Identifier" &&
-          (node.callee.name === "formatMessage" || node.callee.name === "t") &&
-          node.arguments.length > 0
-        ) {
-          if (isProblematicConditional(node)) {
-            context.report({ node, messageId: CONDITIONAL_TEXT_NODE });
-          } else if (
-            isChildOfJSXElement(node.parent) &&
-            hasSiblings(node.parent) &&
-            conditionalSiblingsPrecedeNode(node.parent)
-          ) {
-            context.report({
-              node,
-              messageId: TEXT_NODE_PRECEDED_BY_CONDITIONAL,
-            });
-          }
         }
       },
     };

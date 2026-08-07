@@ -1,4 +1,4 @@
-export function Bad({ val, obj }: any) {
+export function Bad({ val, obj, symbol }: any) {
   return (
     <div>
       <p>
@@ -13,6 +13,29 @@ export function Bad({ val, obj }: any) {
       </p>
       <p>
         {val ? obj.a : <span>b</span>} <span>y</span>
+      </p>
+      {/* the fragment's own bare text is removed when the branch flips */}
+      <p>
+        {val ? <>bare {obj.name} text</> : ""}
+        <span>x</span>
+      </p>
+      {/* a bare identifier is not something this plugin can identify without
+          types, so the '' stays the only signal that text toggles here */}
+      <p>
+        {symbol === "%" ? symbol : ""}
+        <input />
+      </p>
+      {/* a falsy-but-renderable test makes `&& ""` a text node: count === 0
+          renders "0" here, and nothing once it is non-zero */}
+      <p>
+        {obj.count && ""}
+        <span>x</span>
+      </p>
+      {/* the fragment renders through an expression container, so its text is
+          invisible to us -- the '' remains the only signal */}
+      <p>
+        {val ? <>{obj.name}</> : ""}
+        <span>x</span>
       </p>
     </div>
   );

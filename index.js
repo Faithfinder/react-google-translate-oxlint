@@ -107,6 +107,44 @@ const isBinaryExpression = (node) =>
     ? isCondition(node.parent)
     : false;
 
+const containsBareText = (node) =>
+  node.children.some(
+    (child) => child.type === "JSXText" && !isWhitespace(child)
+  );
+
+// Every child is itself JSX, so nothing here renders as bare text. An
+// expression container disqualifies the fragment: without types its value may
+// well be a string.
+const rendersOnlyElements = (node) =>
+  node.children.every(
+    (child) =>
+      isWhitespace(child) ||
+      child.type === "JSXElement" ||
+      (child.type === "JSXFragment" && rendersOnlyElements(child))
+  );
+
+// `''` creates no text node -- the reconciler's guard is `newChild !== ''` -- so
+// it is only ever worth reporting as a stand-in for the branch opposite it,
+// which without a type checker may well render text we cannot identify. The
+// stand-in is redundant only once that branch is accounted for: an element
+// renders no bare text, a fragment of elements renders none either, and a
+// fragment holding bare text is reported on the fragment itself. A fragment
+// wrapping an expression container is none of those, so the `''` still stands.
+const isInertEmptyString = (node) => {
+  if (node.type !== "Literal" || node.value !== "") return false;
+  const parent = node.parent;
+  if (!parent || parent.type !== "ConditionalExpression") return false;
+  const other = Object.is(parent.consequent, node)
+    ? parent.alternate
+    : parent.consequent;
+  if (!other) return false;
+  if (other.type === "JSXElement") return true;
+  return (
+    other.type === "JSXFragment" &&
+    (rendersOnlyElements(other) || containsBareText(other))
+  );
+};
+
 const CONDITIONAL_TEXT_NODE = "conditional-text-node";
 const TEXT_NODE_PRECEDED_BY_CONDITIONAL = "text-node-preceded-by-conditional";
 
@@ -131,9 +169,16 @@ const noConditionalTextNodesWithSiblings = {
         if (
           node.value !== null &&
           typeof node.value !== "boolean" &&
+          !isInertEmptyString(node) &&
           !isWhitespace(node) &&
           isProblematicConditional(node)
         ) {
+          context.report({ node, messageId: CONDITIONAL_TEXT_NODE });
+        }
+      },
+      // conditionally rendered fragments whose children include bare text
+      JSXFragment(node) {
+        if (containsBareText(node) && isProblematicConditional(node)) {
           context.report({ node, messageId: CONDITIONAL_TEXT_NODE });
         }
       },

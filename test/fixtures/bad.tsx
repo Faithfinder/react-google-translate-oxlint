@@ -14,6 +14,11 @@ export function Bad({ val, obj }: any) {
       <p>
         {val ? obj.a : <span>b</span>} <span>y</span>
       </p>
+      {/* the callback returns strings, so this map may well render text */}
+      <p>
+        {val ? <b>x</b> : obj?.items?.map((i: any) => String(i))}
+        <span>y</span>
+      </p>
     </div>
   );
 }

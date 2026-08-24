@@ -37,6 +37,28 @@ All notable changes to this fork are documented here. This project adheres to
   `formatMessage(...)` identifier was recognised, so `intl.formatMessage({...})`
   — the shape react-intl actually hands you — was missed.
 
+### Removed
+
+- **The hardcoded `t` / `formatMessage` i18n list.** `i18nFunctions` is now empty
+  by default, so no call is treated as returning text until a project lists its
+  own helpers. Which function returns a translated string is a project
+  convention, and a built-in guess at an identifier as generic as `t` reports
+  every unrelated function sharing the name while still missing every other
+  translator.
+
+  **Migration:** if you relied on the previous behaviour, restore it explicitly:
+
+  ```json
+  {
+    "rules": {
+      "react-google-translate/no-conditional-text-nodes-with-siblings": [
+        "error",
+        { "i18nFunctions": ["t", "formatMessage"] }
+      ]
+    }
+  }
+  ```
+
 ### Changed
 
 - `peerDependencies` narrowed from `oxlint >=1.0.0` to `>=1.47.0 <2`. oxlint's

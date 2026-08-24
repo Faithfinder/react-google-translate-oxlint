@@ -152,6 +152,7 @@ export const A = ({ val, t }: any) => (
     <span>x</span>
   </p>
 );`,
+    options: { i18nFunctions: ["t"] },
     errors: [`4: ${CONDITIONAL}`],
   },
   {
@@ -163,6 +164,7 @@ export const A = ({ val, intl }: any) => (
     <span>x</span>
   </p>
 );`,
+    options: { i18nFunctions: ["formatMessage"] },
     errors: [`4: ${CONDITIONAL}`],
   },
   {
@@ -355,6 +357,18 @@ export const A = ({ obj }: any) => (
     errors: [],
   },
   {
+    name: "no i18n helper is assumed without options",
+    code: `
+export const A = ({ val, t, intl }: any) => (
+  <p>
+    {val ? t("key") : <span>b</span>}
+    {val ? intl.formatMessage({ id: "a" }) : <span>c</span>}
+    <span>x</span>
+  </p>
+);`,
+    errors: [],
+  },
+  {
     name: "i18n helper not in the configured list",
     code: `
 export const A = ({ val, i18n }: any) => (
@@ -363,6 +377,7 @@ export const A = ({ val, i18n }: any) => (
     <span>x</span>
   </p>
 );`,
+    options: { i18nFunctions: ["t", "formatMessage"] },
     errors: [],
   },
   {

@@ -211,15 +211,18 @@ const returnsJsxForEachItem = (node) => {
 /* options                                                                     */
 /* -------------------------------------------------------------------------- */
 
-const DEFAULT_I18N_FUNCTIONS = ["t", "formatMessage"];
 const DEFAULT_WRAP_WITH = "span";
 
 const optionsOf = (context) =>
   (context.options && context.options[0]) || Object.create(null);
 
+// No default list. Which helper returns translated text is a project's
+// convention, not something this plugin can know, and a built-in guess at `t` --
+// as generic an identifier as exists -- reports whatever else happens to be
+// named that. Configure `i18nFunctions` to opt in.
 const i18nFunctionsOf = (context) => {
   const configured = optionsOf(context).i18nFunctions;
-  return Array.isArray(configured) ? configured : DEFAULT_I18N_FUNCTIONS;
+  return new Set(Array.isArray(configured) ? configured : []);
 };
 
 const wrapWithOf = (context) => {
@@ -309,7 +312,7 @@ const noConditionalTextNodesWithSiblings = {
             type: "array",
             items: { type: "string" },
             description:
-              "Names of helpers that return translated text. Matched against the final identifier of the callee, so `formatMessage` covers `intl.formatMessage(...)`.",
+              "Names of helpers that return translated text. Empty by default; nothing is flagged until you list your own. Matched against the final identifier of the callee, so `formatMessage` covers `intl.formatMessage(...)`.",
           },
           wrapWith: WRAP_WITH_SCHEMA,
         },
@@ -379,9 +382,11 @@ const noConditionalTextNodesWithSiblings = {
         }
       },
       CallExpression(node) {
-        // Without type info, only flag well-known i18n helpers that return text.
+        // Without type info a call's text-ness is unknowable, so only the
+        // helpers the project named in `i18nFunctions` are treated as text.
+        if (i18nFunctions.size === 0) return;
         if (
-          !i18nFunctions.includes(calleeName(node.callee)) ||
+          !i18nFunctions.has(calleeName(node.callee)) ||
           node.arguments.length === 0
         ) {
           return;

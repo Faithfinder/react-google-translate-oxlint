@@ -109,18 +109,20 @@ as elements do.
 <p>{val ? "foo" : "bar"}</p>
 ```
 
-**Options** — `i18nFunctions` (default `["t", "formatMessage"]`) names the
-helpers treated as returning translated text. They are matched against the final
-identifier of the callee, so `formatMessage` covers `intl.formatMessage(...)` as
-well as a bare call. `wrapWith` (default `"span"`) picks the element the
-suggestion uses.
+**Options** — `i18nFunctions` names the helpers treated as returning translated
+text. It is **empty by default**: which function returns a translated string is
+your project's convention, not something this plugin can know, and guessing at a
+name as generic as `t` reports whatever else happens to be called that. List
+your own to opt in. Names are matched against the final identifier of the
+callee, so `formatMessage` covers `intl.formatMessage(...)` as well as a bare
+call. `wrapWith` (default `"span"`) picks the element the suggestion uses.
 
 ```json
 {
   "rules": {
     "react-google-translate/no-conditional-text-nodes-with-siblings": [
       "error",
-      { "i18nFunctions": ["t", "translate"] }
+      { "i18nFunctions": ["t", "formatMessage"] }
     ]
   }
 }
@@ -183,8 +185,10 @@ const label = () => "hello";
 - **Conditional returns are checked.** `() => cond ? "a" : "b"` returns text down
   at least one path; only direct literals were recognised before.
 - **i18n helpers are matched through a member callee**, so
-  `intl.formatMessage({...})` — the shape react-intl hands you — is caught, and
-  the list of helper names is configurable.
+  `intl.formatMessage({...})` — the shape react-intl hands you — is caught once
+  configured. The names are no longer hardcoded: upstream assumed `t` and
+  `formatMessage`, which both misses every other translator and reports anything
+  else named `t`. `i18nFunctions` is empty by default and you list your own.
 
 ### Tooling
 

@@ -16,7 +16,9 @@ export interface NoConditionalTextNodesOptions extends WrapOption {
    * identifier of the callee, so `"formatMessage"` covers both
    * `formatMessage(...)` and `intl.formatMessage(...)`.
    *
-   * Defaults to `["t", "formatMessage"]`.
+   * Empty by default — no call is treated as text until you list one. Which
+   * helper returns a translated string is a project convention, so there is
+   * deliberately no built-in guess.
    */
   i18nFunctions?: string[];
 }

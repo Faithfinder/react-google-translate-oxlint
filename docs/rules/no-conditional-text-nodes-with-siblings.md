@@ -24,7 +24,8 @@ contents, so there is no stale wrapper to trip over.
 // static text preceded by a conditional sibling
 <p>{val ? <span>a</span> : <span>b</span>} tail</p>
 
-// an i18n helper returns text, whatever it is called through
+// with `i18nFunctions: ["formatMessage"]` configured — matched through the
+// member callee, so a bare `formatMessage(...)` is covered by the same entry
 <p>{val ? intl.formatMessage({ id: "a" }) : <span>b</span>}<span>x</span></p>
 ```
 
@@ -59,14 +60,21 @@ contents, so there is no stale wrapper to trip over.
 
 ### `i18nFunctions`
 
-Default `["t", "formatMessage"]`.
+Default `[]` — **no call is treated as returning text until you list one.**
 
-Names of helpers that return translated text. Without a type checker these
-cannot be inferred, so they are matched by name — against the **final
-identifier** of the callee, which means `"formatMessage"` covers both
-`formatMessage(...)` and `intl.formatMessage(...)`.
+Without a type checker a call's text-ness cannot be inferred, so these are
+matched by name. There is deliberately no built-in list: which helper returns a
+translated string is a project convention, and a default guess at `t` — about as
+generic an identifier as exists — flags every unrelated function that shares the
+name. Naming them yourself is the only way this stays accurate.
 
-Add your own translator here, e.g. `{ "i18nFunctions": ["t", "translate"] }`.
+Names match the **final identifier** of the callee, so `"formatMessage"` covers
+both `formatMessage(...)` and `intl.formatMessage(...)`, and `"t"` covers `t(...)`
+and `i18n.t(...)`.
+
+```json
+{ "i18nFunctions": ["t", "formatMessage"] }
+```
 
 ### `wrapWith`
 

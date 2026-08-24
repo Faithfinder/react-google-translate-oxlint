@@ -1,8 +1,14 @@
-# oxlint-plugin-react-google-translate
+# @faithfinder/oxlint-plugin-react-google-translate
 
 An [oxlint](https://oxc.rs/docs/guide/usage/linter.html) plugin that flags JSX
 patterns which crash React when the **Google Translate** browser extension is
 active.
+
+> A fork of [`oxlint-plugin-react-google-translate`](https://www.npmjs.com/package/oxlint-plugin-react-google-translate)
+> by Maksym Dolynchuk, published while
+> [upstream](https://github.com/dolynchuk/react-google-translate-oxlint) is
+> inactive. It carries several false-positive fixes and wider component
+> coverage — see [Changes from upstream](#changes-from-upstream).
 
 When translating a page, Google Translate rewrites the DOM — wrapping text nodes
 in `<font>` elements. If React then removes or reorders a **conditionally
@@ -21,7 +27,7 @@ by getcouped (MIT). It catches the problem at lint time so you never ship it.
 ## Install
 
 ```sh
-npm install --save-dev oxlint-plugin-react-google-translate
+npm install --save-dev @faithfinder/oxlint-plugin-react-google-translate
 ```
 
 Requires oxlint with JS-plugin support (`>=1.0`).
@@ -33,7 +39,7 @@ Register the plugin in `.oxlintrc.json` via `jsPlugins`, then enable the rules
 
 ```json
 {
-  "jsPlugins": ["oxlint-plugin-react-google-translate"],
+  "jsPlugins": ["@faithfinder/oxlint-plugin-react-google-translate"],
   "rules": {
     "react-google-translate/no-conditional-text-nodes-with-siblings": "error",
     "react-google-translate/no-return-text-nodes": "error"
@@ -43,7 +49,7 @@ Register the plugin in `.oxlintrc.json` via `jsPlugins`, then enable the rules
 
 If your oxlint version doesn't resolve the bare package name, point `jsPlugins`
 at the file directly:
-`"./node_modules/oxlint-plugin-react-google-translate/index.js"`.
+`"./node_modules/@faithfinder/oxlint-plugin-react-google-translate/index.js"`.
 
 ## Rules
 
@@ -67,32 +73,56 @@ static text preceded by a conditional sibling.
 
 ### `no-return-text-nodes`
 
-Flags a React component (a capitalized function declaration) that returns a bare
-string or number. Under Translate this can strand a stale value after a
-re-render, silently, with no error.
+Flags a React component that returns a bare string or number. Under Translate
+this can strand a stale value after a re-render, silently, with no error.
+
+A component is any capitalised function declaration, or a capitalised binding
+initialised with an arrow function or function expression.
 
 ```jsx
 // ❌ bad
 function Label() {
   return "hello";
 }
+const Label = () => "hello";
+const Label = () => {
+  return "hello";
+};
 
 // ✅ good
-function Label() {
-  return <span>hello</span>;
-}
+const Label = () => <span>hello</span>;
+// ✅ good — lowercase, so it is a helper rather than a component
+const label = () => "hello";
 ```
+
+## Changes from upstream
+
+- **`{cond ? <El/> : ""}` is no longer reported.** `''` renders nothing — the
+  reconciler's guard is `newChild !== ''` — so no text node exists to reparent.
+  The `''` is still reported wherever the opposite branch might render text this
+  plugin cannot identify, including `expr ?? ''` and `cond && ''`, where a falsy
+  test such as `0` renders text of its own.
+- **`{cond ? <El/> : items?.map((i) => <li key={i} />)}` is no longer reported.**
+  Only the `?.` made it a `ChainExpression` and so a candidate; the callback
+  demonstrably returns JSX. `items?.map(String)` is still reported.
+- **Arrow-function components are checked.** `no-return-text-nodes` previously
+  visited only `FunctionDeclaration`, so `const Foo = () => "text"` — the
+  dominant component style — went entirely unchecked.
+- **Tests assert positions, not counts**, and fail when a fixture stops parsing.
 
 ## Difference from the ESLint plugin
 
 The original uses TypeScript type information to detect text-returning
 expressions (e.g. a variable typed as `string`, `value.toLocaleString()`).
-oxlint's JS-plugin context has **no type-checker**, so those type-driven cases
-are not detected here. The purely syntactic cases — string/number literals,
-template literals, member and optional-chain expressions, `t()` / `formatMessage()`
-calls, and static text after a conditional — are all still flagged.
+oxlint *does* have type-aware linting via
+[tsgolint](https://oxc.rs/docs/guide/usage/linter/type-aware.html), but it is
+limited to built-in rules — a custom JS plugin's `context` exposes no
+`parserServices`, so those type-driven cases cannot be detected here. The purely
+syntactic cases — string/number literals, template literals, member and
+optional-chain expressions, `t()` / `formatMessage()` calls, and static text
+after a conditional — are all still flagged.
 
 ## License
 
-MIT © Maksym Dolynchuk. Ported from `eslint-plugin-react-google-translate`
-(MIT, getcouped).
+MIT © Maksym Dolynchuk, and contributors to this fork. Ported from
+`eslint-plugin-react-google-translate` (MIT, getcouped).

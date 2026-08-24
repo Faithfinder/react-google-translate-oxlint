@@ -71,3 +71,12 @@ test("flags every dangerous pattern in the bad fixture", () => {
 test("reports nothing for the good fixture", () => {
   assert.deepEqual(lint("good.tsx").violations, []);
 });
+
+// `plugin.meta.version` is what oxlint reports; nothing keeps it in step with
+// the published version except this.
+test("the plugin reports the package version", async () => {
+  const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+  const { default: plugin } = await import(join(root, "index.js"));
+  assert.equal(plugin.meta.version, pkg.version);
+  assert.equal(plugin.meta.name, "react-google-translate");
+});

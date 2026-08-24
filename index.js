@@ -373,7 +373,7 @@ const noReturnTextNodes = {
 const plugin = {
   meta: {
     name: "react-google-translate",
-    version: "0.1.0",
+    version: "0.2.0",
   },
   rules: {
     "no-conditional-text-nodes-with-siblings":

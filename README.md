@@ -39,12 +39,16 @@ account and resolves under the same name, so the `jsPlugins` entry below is
 unchanged:
 
 ```sh
+# a tag, once one is pushed
 npm install --save-dev "github:Faithfinder/react-google-translate-oxlint#v0.2.0"
+
+# or any commit
+npm install --save-dev "github:Faithfinder/react-google-translate-oxlint#<sha>"
 ```
 
 Pin a tag or a commit SHA rather than a branch — a branch ref is refetched and
-can change under you between installs. There is no build step, so the checkout
-is used as-is.
+can move under you between installs. There is no build step, so the checkout is
+used as-is, and the package resolves under the same scoped name either way.
 
 ## Usage
 

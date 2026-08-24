@@ -3,6 +3,9 @@
  * JS-plugin API, so the shapes below are declared structurally — enough for
  * `oxlint.config.ts` users to import the plugin and for editors to describe the
  * rule options.
+ *
+ * `types/usage.ts` compiles against this file under `pnpm typecheck`, so a
+ * change here that would break a consumer fails in CI rather than in a project.
  */
 
 /** Element name that a suggested fix wraps offending text in. Defaults to `span`. */
@@ -10,7 +13,7 @@ export interface WrapOption {
   wrapWith?: string;
 }
 
-export interface NoConditionalTextNodesOptions extends WrapOption {
+export interface TextReturningFunctionsOption {
   /**
    * Names of *project* functions that return a string rather than an element —
    * translators (`t`, `formatMessage`), formatters (`formatCurrency`,
@@ -27,7 +30,14 @@ export interface NoConditionalTextNodesOptions extends WrapOption {
   textReturningFunctions?: string[];
 }
 
-export type NoReturnTextNodesOptions = WrapOption;
+/** Both rules ask the same question of a call, so both take the same options. */
+export interface NoConditionalTextNodesOptions
+  extends WrapOption,
+    TextReturningFunctionsOption {}
+
+export interface NoReturnTextNodesOptions
+  extends WrapOption,
+    TextReturningFunctionsOption {}
 
 interface RuleMeta {
   type: string;

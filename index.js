@@ -17,6 +17,8 @@
  *   -> {cond ? <span>foo</span> : <span>bar</span>} <span>x</span>
  */
 
+import pkg from "./package.json" with { type: "json" };
+
 const DOCS_BASE =
   "https://github.com/Faithfinder/react-google-translate-oxlint/blob/main/docs/rules";
 
@@ -33,6 +35,17 @@ const isWhitespace = (node) =>
     typeof node.value === "string" &&
     node.value !== "" &&
     node.value.trim() === "");
+
+// A comment container (`{/* … */}`) is dropped by the JSX transform, so it is no
+// more a rendered sibling than collapsed whitespace is: in
+// `{cond ? 'a' : 'b'}{/* c */}` the conditional is the parent's only child, and
+// React replaces a lone child's contents wholesale rather than reparenting it.
+// Counting the comment as a sibling reported code that cannot crash.
+const rendersNothing = (node) =>
+  isWhitespace(node) ||
+  (node.type === "JSXExpressionContainer" &&
+    node.expression &&
+    node.expression.type === "JSXEmptyExpression");
 
 const isConditionallyRendered = (node) =>
   node.parent &&
@@ -54,7 +67,7 @@ const hasSiblings = (node) =>
   node.parent.children &&
   node.parent.children.length > 1 &&
   node.parent.children.some(
-    (child) => !Object.is(child, node) && !isWhitespace(child)
+    (child) => !Object.is(child, node) && !rendersNothing(child)
   );
 
 // Climb through nested conditionals so `a ? b : (c ? d : e)` reports against the
@@ -88,7 +101,7 @@ const conditionalSiblingsPrecedeNode = (node) =>
   node.parent &&
   node.parent.children &&
   node.parent.children
-    .filter((child) => startOf(child) < startOf(node) && !isWhitespace(child))
+    .filter((child) => startOf(child) < startOf(node) && !rendersNothing(child))
     .some(
       (child) =>
         child.type === "JSXExpressionContainer" &&
@@ -127,7 +140,7 @@ const containsBareText = (node) =>
 const rendersOnlyElements = (node) =>
   node.children.every(
     (child) =>
-      isWhitespace(child) ||
+      rendersNothing(child) ||
       child.type === "JSXElement" ||
       (child.type === "JSXFragment" && rendersOnlyElements(child))
   );
@@ -270,6 +283,15 @@ const WRAP_WITH_SCHEMA = {
   description: "Element name the suggested fix wraps text in.",
 };
 
+// Both rules ask the same question of a call — does it render as bare text? — so
+// they take the same option rather than each naming it differently.
+const TEXT_RETURNING_FUNCTIONS_SCHEMA = {
+  type: "array",
+  items: { type: "string" },
+  description:
+    "Names of this project's functions that return a string rather than an element - translators, formatters. Functions the language guarantees return strings (`toLocaleString`, `toFixed`, `join`, `String`, ...) are built in and need no configuration. Matched against the final identifier of the callee, so `formatMessage` covers `intl.formatMessage(...)`.",
+};
+
 /* -------------------------------------------------------------------------- */
 /* suggestions                                                                 */
 /* -------------------------------------------------------------------------- */
@@ -341,12 +363,7 @@ const noConditionalTextNodesWithSiblings = {
       {
         type: "object",
         properties: {
-          textReturningFunctions: {
-            type: "array",
-            items: { type: "string" },
-            description:
-              "Names of this project's functions that return a string rather than an element - translators, formatters. Functions the language guarantees return strings (`toLocaleString`, `toFixed`, `join`, `String`, ...) are built in and need no configuration. Matched against the final identifier of the callee, so `formatMessage` covers `intl.formatMessage(...)`.",
-          },
+          textReturningFunctions: TEXT_RETURNING_FUNCTIONS_SCHEMA,
           wrapWith: WRAP_WITH_SCHEMA,
         },
         additionalProperties: false,
@@ -454,7 +471,7 @@ const isComponentName = (name) =>
 
 // A conditional returns text down at least one path, and that path is the
 // dangerous one — `() => cond ? 'a' : 'b'` is as stale-prone as `() => 'a'`.
-const returnsText = (argument) => {
+const returnsText = (argument, textReturningFunctions) => {
   if (!argument) return false;
   if (argument.type === "TemplateLiteral") return true;
   if (argument.type === "Literal") {
@@ -462,14 +479,28 @@ const returnsText = (argument) => {
       typeof argument.value === "string" || typeof argument.value === "number"
     );
   }
+  // `() => t("key")` is the commonest bare-text component there is, and the same
+  // call in a conditional branch was already reported by the sibling rule — the
+  // name is what settles it in both places, so both rules ask the same question.
+  if (argument.type === "CallExpression") {
+    return isTextReturningCall(argument, textReturningFunctions);
+  }
+  // `d?.toLocaleString()` differs from the plain call only in the optional chain.
+  if (argument.type === "ChainExpression") {
+    return returnsText(argument.expression, textReturningFunctions);
+  }
   if (argument.type === "ConditionalExpression") {
-    return returnsText(argument.consequent) || returnsText(argument.alternate);
+    return (
+      returnsText(argument.consequent, textReturningFunctions) ||
+      returnsText(argument.alternate, textReturningFunctions)
+    );
   }
   if (argument.type === "LogicalExpression") {
     // The left of `&&` is the test, not a rendered value.
     return (
-      returnsText(argument.right) ||
-      (argument.operator !== "&&" && returnsText(argument.left))
+      returnsText(argument.right, textReturningFunctions) ||
+      (argument.operator !== "&&" &&
+        returnsText(argument.left, textReturningFunctions))
     );
   }
   return false;
@@ -506,7 +537,10 @@ const noReturnTextNodes = {
     schema: [
       {
         type: "object",
-        properties: { wrapWith: WRAP_WITH_SCHEMA },
+        properties: {
+          textReturningFunctions: TEXT_RETURNING_FUNCTIONS_SCHEMA,
+          wrapWith: WRAP_WITH_SCHEMA,
+        },
         additionalProperties: false,
       },
     ],
@@ -517,6 +551,7 @@ const noReturnTextNodes = {
     },
   },
   create(context) {
+    const textReturningFunctions = textReturningFunctionsOf(context);
     // Reported against the statement so the message points at the `return`, but
     // fixed against the value, which is what actually needs wrapping.
     const report = (node, value) =>
@@ -530,7 +565,9 @@ const noReturnTextNodes = {
     const reportReturns = (node) => {
       if (!node) return;
       if (node.type === "ReturnStatement") {
-        if (returnsText(node.argument)) report(node, node.argument);
+        if (returnsText(node.argument, textReturningFunctions)) {
+          report(node, node.argument);
+        }
         return;
       }
       if (node.type === "BlockStatement") {
@@ -568,7 +605,9 @@ const noReturnTextNodes = {
         return;
       // a concise arrow body is itself the return value
       if (fn.body && fn.body.type !== "BlockStatement") {
-        if (returnsText(fn.body)) report(fn.body, fn.body);
+        if (returnsText(fn.body, textReturningFunctions)) {
+          report(fn.body, fn.body);
+        }
         return;
       }
       reportReturns(fn.body);
@@ -605,6 +644,23 @@ const noReturnTextNodes = {
         if (isComponentWrapperCall(node.init)) return;
         reportFunctionBody(node.init);
       },
+      // `export default () => "text"` and `export default function () { … }`
+      // name no component to capitalise and leave no declarator to hang the
+      // check on, so both went unvisited — while the equally anonymous
+      // `export default memo(() => "text")` was already reported.
+      ExportDefaultDeclaration(node) {
+        const declaration = node.declaration;
+        if (!declaration) return;
+        if (declaration.type === "FunctionDeclaration") {
+          // A named one is reported by the FunctionDeclaration visitor already.
+          if (declaration.id) return;
+          reportReturns(declaration.body);
+          return;
+        }
+        // A wrapper call or a class falls to the visitor that owns it; this
+        // ignores anything that is not a function expression outright.
+        reportFunctionBody(declaration);
+      },
       CallExpression(node) {
         if (!isComponentWrapperCall(node)) return;
         // Only the outermost wrapper reports, so `memo(forwardRef(fn))` is one
@@ -625,7 +681,7 @@ const noReturnTextNodes = {
 const plugin = {
   meta: {
     name: "react-google-translate",
-    version: "0.3.0",
+    version: pkg.version,
   },
   rules: {
     "no-conditional-text-nodes-with-siblings":

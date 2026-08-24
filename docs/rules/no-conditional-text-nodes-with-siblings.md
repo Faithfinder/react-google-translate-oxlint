@@ -38,6 +38,10 @@ contents, so there is no stale wrapper to trip over.
 // no siblings, so nothing can be reparented
 <p>{val ? "foo" : "bar"}</p>
 
+// a comment is dropped by the JSX transform, so the conditional is still the
+// parent's only child
+<p>{val ? "foo" : "bar"}{/* a note */}</p>
+
 // '' renders nothing, and the other branch is an element
 <p>{val ? <b>{val}</b> : ""} <span>x</span></p>
 

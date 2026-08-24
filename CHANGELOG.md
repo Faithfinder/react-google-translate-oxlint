@@ -3,6 +3,45 @@
 All notable changes to this fork are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-08-24
+
+### Added
+
+- **`no-return-text-nodes` now recognises text-returning calls,** and takes the
+  `textReturningFunctions` option to name them. `() => t("key")` — the commonest
+  bare-text component there is in an i18n codebase — and `() => d.toLocaleString()`
+  were unreported, even though the sibling rule already flagged the very same
+  calls in a conditional branch. Both rules now ask the same question of a call,
+  and the built-in stringifiers still need no configuration. Optional chaining is
+  followed, so `() => d?.toLocaleString()` counts too.
+- **Anonymous default exports are checked.** `export default () => "text"` and
+  `export default function () { … }` have no name to capitalise and no declarator
+  to hang the check on, so neither was ever visited — while the equally anonymous
+  `export default memo(() => "text")` was already reported. A named
+  `export default function Label()` still reports once, not twice.
+- **TypeScript declarations are type-checked in CI.** `index.d.ts` is
+  hand-written and nothing compiled it, so it could rot through any refactor.
+  `types/usage.ts` is a consumer that compiles against it under `pnpm typecheck`;
+  it is neither shipped nor executed.
+
+### Fixed
+
+- **A JSX comment is no longer counted as a sibling.**
+  `{cond ? "a" : "b"}{/* c */}` was reported, but the JSX transform drops the
+  comment entirely: the conditional is the parent's only child, and React
+  replaces a lone child's contents rather than reparenting a text node. The same
+  applies inside a fragment, where a comment no longer stops
+  `{cond ? <>{/* c */}<b>a</b></> : ""}` from standing down.
+
+### Changed
+
+- **The plugin version is read from `package.json`** rather than duplicated in
+  `index.js`, so a release bumps one file instead of two.
+- **The rule tester surfaces an oxlint failure instead of a parse error.** When
+  oxlint exits before linting starts — a rejected rule option, a plugin that will
+  not load — its stdout and stderr are raised, where the harness previously died
+  with `SyntaxError: Unexpected token 'F'` and said nothing about the cause.
+
 ## [0.3.0] - 2026-08-24
 
 ### Added

@@ -334,6 +334,68 @@ export class Label extends React.Component {
     errors: [`4: ${RETURN_TEXT}`],
   },
 
+  {
+    name: "component returning a configured text call",
+    code: `export const Label = ({ t }: any) => t("key");`,
+    rule: RETURN_TEXT,
+    options: { textReturningFunctions: ["t"] },
+    errors: [`1: ${RETURN_TEXT}`],
+  },
+  {
+    name: "component returning a built-in stringifier",
+    code: `export const Label = ({ d }: any) => d.toLocaleString();`,
+    errors: [`1: ${RETURN_TEXT}`],
+  },
+  {
+    name: "component returning an optional-chained stringifier",
+    code: `export const Label = ({ d }: any) => d?.toLocaleString();`,
+    errors: [`1: ${RETURN_TEXT}`],
+  },
+  {
+    name: "block returning a configured text call",
+    code: `
+export const Label = ({ t }: any) => {
+  return t("key");
+};`,
+    rule: RETURN_TEXT,
+    options: { textReturningFunctions: ["t"] },
+    errors: [`3: ${RETURN_TEXT}`],
+  },
+  {
+    name: "conditional branch returning a stringifier",
+    code: `export const Label = ({ val, d }: any) => (val ? d.toFixed(2) : <span>x</span>);`,
+    errors: [`1: ${RETURN_TEXT}`],
+  },
+  {
+    name: "class render returning a stringifier",
+    code: `
+import React from "react";
+export class Label extends React.Component<any> {
+  render() {
+    return String(this.props.n);
+  }
+}`,
+    errors: [`5: ${RETURN_TEXT}`],
+  },
+  {
+    name: "anonymous default-exported arrow returning a string",
+    code: `export default () => "text";`,
+    errors: [`1: ${RETURN_TEXT}`],
+  },
+  {
+    name: "anonymous default-exported function returning a string",
+    code: `
+export default function () {
+  return "text";
+}`,
+    errors: [`3: ${RETURN_TEXT}`],
+  },
+  {
+    name: "anonymous default-exported function expression",
+    code: `export default function () { return String(1); };`,
+    errors: [`1: ${RETURN_TEXT}`],
+  },
+
   /* ------------------------------------------------------------------ valid */
   {
     name: "conditional text with no siblings",
@@ -473,6 +535,72 @@ export class helper {
 }`,
     errors: [],
   },
+  {
+    name: "a comment is not a rendered sibling",
+    code: `export const A = ({ val }: any) => <p>{val ? "foo" : "bar"}{/* c */}</p>;`,
+    errors: [],
+  },
+  {
+    name: "a comment alongside a real sibling still reports",
+    code: `export const A = ({ val }: any) => <p>{val ? "a" : "b"}{/* c */}<span>x</span></p>;`,
+    errors: [`1: ${CONDITIONAL}`, `1: ${CONDITIONAL}`],
+  },
+  {
+    name: "a comment does not disqualify a fragment of elements",
+    code: `
+export const A = ({ val }: any) => (
+  <p>
+    {val ? <>{/* c */}<b>a</b></> : ""} <span>x</span>
+  </p>
+);`,
+    errors: [],
+  },
+  {
+    name: "a comment is not a conditional sibling preceding text",
+    code: `export const A = () => <p>{/* c */} tail <span>x</span></p>;`,
+    errors: [],
+  },
+  {
+    name: "an unconfigured call is not assumed to return text",
+    code: `export const Label = ({ fetchThing }: any) => fetchThing();`,
+    errors: [],
+  },
+  {
+    name: "a named default export is reported once, not twice",
+    code: `
+export default function Label() {
+  return "text";
+}`,
+    errors: [`3: ${RETURN_TEXT}`],
+  },
+  {
+    name: "an anonymous default export returning an element",
+    code: `export default () => <span>x</span>;`,
+    errors: [],
+  },
+  {
+    name: "an anonymous default-exported class reports once",
+    code: `
+import React from "react";
+export default class extends React.Component {
+  render() {
+    return "text";
+  }
+}`,
+    errors: [`5: ${RETURN_TEXT}`],
+  },
+  {
+    name: "a member expression return is not assumed to be text",
+    code: `export const Label = ({ props }: any) => props.children;`,
+    errors: [],
+  },
+  {
+    name: "an anonymous default-exported wrapper reports once",
+    code: `
+import { memo } from "react";
+export default memo(() => "text");`,
+    errors: [`3: ${RETURN_TEXT}`],
+  },
 ];
 
 const results = lintCases(cases);
@@ -560,6 +688,13 @@ export const Label = () => {
     rule: RETURN_TEXT,
     options: { wrapWith: "div" },
     output: `export const Label = () => <div>{"text"}</div>;`,
+  },
+  {
+    name: "wraps a text-returning call in a component body",
+    code: `export const Label = ({ t }: any) => t("key");`,
+    rule: RETURN_TEXT,
+    options: { textReturningFunctions: ["t"] },
+    output: `export const Label = ({ t }: any) => <span>{t("key")}</span>;`,
   },
   {
     name: "offers no JSX wrapper in a .ts file",

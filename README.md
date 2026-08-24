@@ -36,7 +36,7 @@ config changes when it does land:
 
 ```sh
 # a tag — recommended
-pnpm add -D "github:Faithfinder/react-google-translate-oxlint#v0.3.0"
+pnpm add -D "github:Faithfinder/react-google-translate-oxlint#v0.4.0"
 
 # or any commit
 pnpm add -D "github:Faithfinder/react-google-translate-oxlint#<sha>"
@@ -107,6 +107,8 @@ as elements do.
 <p>{val ? <span>foo</span> : <span>bar</span>} <span>x</span></p>
 // ✅ good — no siblings, so it can't crash
 <p>{val ? "foo" : "bar"}</p>
+// ✅ good — a comment is dropped by the JSX transform, so it is not a sibling
+<p>{val ? "foo" : "bar"}{/* a note */}</p>
 ```
 
 **Options** — `textReturningFunctions` names the functions whose return value
@@ -135,12 +137,14 @@ call. `wrapWith` (default `"span"`) picks the element the suggestion uses.
 
 ### [`no-return-text-nodes`](docs/rules/no-return-text-nodes.md)
 
-Flags a React component that returns a bare string or number. Under Translate
-this can strand a stale value after a re-render, silently, with no error.
+Flags a React component that returns bare text — a string, a number, or a call
+that renders as one. Under Translate this can strand a stale value after a
+re-render, silently, with no error.
 
 A component is any capitalised function declaration, a capitalised binding
 initialised with an arrow or function expression, anything wrapped in `memo(...)`
-or `forwardRef(...)`, and a class component's `render`.
+or `forwardRef(...)`, a default export that is a function, and a class
+component's `render`.
 
 ```jsx
 // ❌ bad
@@ -150,6 +154,15 @@ function Label() {
 const Label = () => "hello";
 const Label = ({ val }) => (val ? "a" : "b");
 export default memo(() => "hello");
+// a default export needs no name to be a component
+export default () => "hello";
+export default function () {
+  return "hello";
+}
+// with `textReturningFunctions: ["t"]` configured
+const Label = ({ t }) => t("key");
+// built in, so no configuration needed
+const Label = ({ d }) => d.toLocaleString();
 class Label extends React.Component {
   render() {
     return "hello";
@@ -162,7 +175,23 @@ const Label = () => <span>hello</span>;
 const label = () => "hello";
 ```
 
-**Options** — `wrapWith` (default `"span"`).
+**Options** — the same two the sibling rule takes. `textReturningFunctions`
+names your project's text-returning helpers, so `const Label = () => t("key")` —
+the commonest bare-text component in an i18n codebase — is reported; the
+language's own stringifiers (`toLocaleString`, `toFixed`, `String`, …) are built
+in and need no configuration. `wrapWith` (default `"span"`) picks the element the
+suggestion uses.
+
+```json
+{
+  "rules": {
+    "react-google-translate/no-return-text-nodes": [
+      "error",
+      { "textReturningFunctions": ["t", "formatMessage"] }
+    ]
+  }
+}
+```
 
 ## Changes from upstream
 
@@ -173,6 +202,10 @@ const label = () => "hello";
   The `''` is still reported wherever the opposite branch might render text this
   plugin cannot identify, including `expr ?? ''` and `cond && ''`, where a falsy
   test such as `0` renders text of its own.
+- **A JSX comment is no longer counted as a sibling.** `{cond ? "a" : "b"}{/* c */}`
+  was reported, but the JSX transform drops the comment entirely — the conditional
+  is the parent's only child, and React replaces a lone child's contents rather
+  than reparenting a text node.
 - **`{cond ? <El/> : items?.map((i) => <li key={i} />)}` is no longer reported.**
   Only the `?.` made it a `ChainExpression` and so a candidate; the callback
   demonstrably returns JSX. `items?.map(String)` is still reported.
@@ -189,6 +222,14 @@ const label = () => "hello";
   `memo(forwardRef(...))` and anonymous `export default memo(...)`.
 - **Conditional returns are checked.** `() => cond ? "a" : "b"` returns text down
   at least one path; only direct literals were recognised before.
+- **Text-returning calls are checked in return position.** `no-return-text-nodes`
+  recognised only literals, so `() => t("key")` and `() => d.toLocaleString()` —
+  the same calls the sibling rule already flags in a conditional branch — went
+  unreported. Both rules now take `textReturningFunctions`.
+- **Anonymous default exports are checked.** `export default () => "text"` and
+  `export default function () { … }` have no name to capitalise and no declarator
+  to hang the check on, so both went unvisited — while the equally anonymous
+  `export default memo(() => "text")` was already caught.
 - **Text-returning calls are matched through a member callee**, so
   `intl.formatMessage({...})` — the shape react-intl hands you — is caught, where
   upstream only recognised a bare identifier. **Built-in stringifiers are flagged
@@ -226,21 +267,29 @@ Node 22.13 or newer.
 
 ```sh
 pnpm install
-pnpm test   # rule cases + suggestion output
-pnpm lint   # oxlint over this repo
+pnpm test        # rule cases + suggestion output
+pnpm lint        # oxlint over this repo
+pnpm typecheck   # tsc over index.d.ts and types/usage.ts
 ```
 
 Rule tests live in [`test/rules.test.mjs`](test/rules.test.mjs) as isolated
 cases. To add one, append a `{ name, code, errors }` entry — `errors` lists
 `"<line>: <rule>"` for each expected report, with line numbers as written in the
 case's own template. [`test/rule-tester.mjs`](test/rule-tester.mjs) writes every
-case to its own file and lints them in a single oxlint run.
+case to its own file and lints them in a single oxlint run. When oxlint fails
+before linting starts — a rejected rule option, a plugin that will not load — the
+harness raises its stdout and stderr rather than a parse error from inside itself.
+
+`index.d.ts` is hand-written, and [`types/usage.ts`](types/usage.ts) is the
+consumer that compiles against it under `pnpm typecheck`. It is neither shipped
+nor executed; it exists so a declaration that would break an `oxlint.config.ts`
+user fails in CI.
 
 ## Releasing
 
-Tag pushes drive the release workflow. Bump the version in **both**
-`package.json` and `index.js`'s `plugin.meta` (a test enforces they match), add a
-changelog entry, then push a `v*` tag. CI fails a PR that changes published files
+Tag pushes drive the release workflow. Bump the version in `package.json` — the
+plugin reads it from there, so there is nothing to keep in step — add a changelog
+entry, then push a `v*` tag. CI fails a PR that changes published files
 without a bump. Publishing to npm is skipped unless an `NPM_TOKEN` secret is
 configured, so the tag alone is still a usable install ref.
 

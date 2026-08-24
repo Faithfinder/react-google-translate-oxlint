@@ -40,6 +40,21 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
 
+  # `index.d.ts` is hand-written and nothing else compiles it, so it can rot
+  # through any refactor. `types/usage.ts` is the consumer that would notice.
+  typecheck:
+    runs-on: ubuntu-latest
+    name: typecheck
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+
   # oxlint's own config schema says JS plugins are "in alpha and not subject to
   # semver", so an API break has to surface as a red build here rather than as a
   # user's bug report. The floor is the lowest version peerDependencies claims.
@@ -83,7 +98,7 @@ jobs:
           if ! git diff --quiet "$tag" HEAD -- $published; then
             echo "::error::$tag is already tagged, but these published files have changed since:" >&2
             git diff --name-only "$tag" HEAD -- $published >&2
-            echo "Bump the version in package.json (and index.js meta) before merging." >&2
+            echo "Bump the version in package.json before merging." >&2
             exit 1
           fi
           echo "$tag is tagged and no published file has changed since."

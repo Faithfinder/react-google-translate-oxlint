@@ -30,7 +30,7 @@ by getcouped (MIT). It catches the problem at lint time so you never ship it.
 pnpm add -D @faithfinder/oxlint-plugin-react-google-translate
 ```
 
-Requires oxlint with JS-plugin support (`>=1.0`).
+Requires oxlint with JS-plugin support (`>=1.0`) and Node `>=22.12`.
 
 ### Installing from git
 
@@ -143,7 +143,8 @@ after a conditional — are all still flagged.
 ## Development
 
 This repository uses [pnpm](https://pnpm.io) 11 — the version is pinned in
-`packageManager`, so `corepack enable` gets you the right one.
+`packageManager`, so `corepack enable` gets you the right one. pnpm 11 needs
+Node 22.13 or newer.
 
 ```sh
 pnpm install

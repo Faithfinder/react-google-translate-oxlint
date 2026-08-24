@@ -60,7 +60,7 @@ contents, so there is no stale wrapper to trip over.
 
 ### `textReturningFunctions`
 
-Default `[]` — **no call is treated as returning text until you list one.**
+Default `[]` — but see the built-in list below, which applies regardless.
 
 Names of functions whose return value renders as bare text rather than as an
 element. This is the rule's stand-in for type information: oxlint exposes none to
@@ -71,26 +71,33 @@ Translators are the obvious case, but they are not the category — any formatte
 is the same hazard:
 
 ```json
-{
-  "textReturningFunctions": [
-    "t",
-    "formatMessage",
-    "formatCurrency",
-    "toLocaleString",
-    "humanize"
-  ]
-}
+{ "textReturningFunctions": ["t", "formatMessage", "formatCurrency", "humanize"] }
 ```
 
-There is deliberately no built-in list. These names are a project convention, and
-a default guess at something as generic as `t` flags every unrelated function
-that shares the name while still missing every project that calls its helpers
-something else.
-
 Names match the **final identifier** of the callee, so `"formatMessage"` covers
-both `formatMessage(...)` and `intl.formatMessage(...)`, and `"toLocaleString"`
-covers `date.toLocaleString()`. Arity is not checked — a zero-argument formatter
-returns text just the same.
+both `formatMessage(...)` and `intl.formatMessage(...)`. Arity is not checked — a
+zero-argument formatter returns text just the same.
+
+#### Built-in names
+
+Functions the language itself guarantees return a string are always treated as
+text and need no configuration:
+
+```
+String        stringify     join          toString      toLocaleString
+toFixed       toPrecision   toExponential toISOString   toUTCString
+toDateString  toTimeString  toLocaleDateString          toLocaleTimeString
+toUpperCase   toLowerCase   trim
+```
+
+The line is deliberate: `toLocaleString` is not a name a codebase gets to
+redefine the meaning of, so hardcoding it costs nothing. `t` and `format` *are*
+project conventions — guessing at them would flag every unrelated function that
+shares the name while still missing every project that names its helpers
+differently, which is why they stay opt-in.
+
+`slice` and `concat` are omitted for the same reason in reverse: the `Array`
+versions return arrays, so the name alone does not settle it.
 
 ### `wrapWith`
 

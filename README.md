@@ -112,14 +112,15 @@ as elements do.
 **Options** — `textReturningFunctions` names the functions whose return value
 renders as bare text rather than as an element. oxlint gives a JS plugin no type
 information, so `foo()` could return a string or a `ReactElement` and the rule
-cannot tell; this list is how you supply the answer. Translators are the common
-case, but formatters (`formatCurrency`, `toLocaleString`, `dayjs().format`) are
-the same hazard.
+cannot tell; this list is how you supply the answer.
 
-It is **empty by default** — nothing is flagged until you list your own. Names
-match the final identifier of the callee, so `formatMessage` covers
-`intl.formatMessage(...)` as well as a bare call. `wrapWith` (default `"span"`)
-picks the element the suggestion uses.
+Functions the **language** guarantees return strings are already built in and
+need no configuration — `toLocaleString`, `toString`, `toFixed`, `toISOString`,
+`join`, `String`, `trim` and friends. What you add here are your project's own:
+translators (`t`, `formatMessage`) and formatters (`formatCurrency`, `humanize`),
+whose names only your codebase knows. Names match the final identifier of the
+callee, so `formatMessage` covers `intl.formatMessage(...)` as well as a bare
+call. `wrapWith` (default `"span"`) picks the element the suggestion uses.
 
 ```json
 {
@@ -188,12 +189,13 @@ const label = () => "hello";
   `memo(forwardRef(...))` and anonymous `export default memo(...)`.
 - **Conditional returns are checked.** `() => cond ? "a" : "b"` returns text down
   at least one path; only direct literals were recognised before.
-- **Text-returning calls are configurable and matched through a member callee.**
-  Upstream hardcoded `t` and `formatMessage` as bare identifiers, which misses
-  `intl.formatMessage({...})` — the shape react-intl hands you — misses every
-  formatter that is not a translator, and reports anything else named `t`.
-  `textReturningFunctions` is empty by default and you list your own; the arity
-  check went too, so a zero-argument `toLocaleString()` counts.
+- **Text-returning calls are matched through a member callee**, so
+  `intl.formatMessage({...})` — the shape react-intl hands you — is caught, where
+  upstream only recognised a bare identifier. **Built-in stringifiers are flagged
+  with no configuration** (`toLocaleString`, `toFixed`, `join`, `String`, …), and
+  the arity check is gone, so a zero-argument `date.toLocaleString()` counts.
+  Upstream's hardcoded `t` / `formatMessage` guess is replaced by
+  `textReturningFunctions`, where a project names its own helpers.
 
 ### Tooling
 

@@ -12,12 +12,14 @@ export interface WrapOption {
 
 export interface NoConditionalTextNodesOptions extends WrapOption {
   /**
-   * Names of functions that return a string rather than an element —
+   * Names of *project* functions that return a string rather than an element —
    * translators (`t`, `formatMessage`), formatters (`formatCurrency`,
-   * `toLocaleString`), anything whose return value renders as bare text.
+   * `humanize`), anything whose return value renders as bare text.
    *
    * Stands in for the type information oxlint does not expose to a JS plugin.
-   * Empty by default — no call is treated as text until you list one.
+   * These add to a built-in list of functions the language already guarantees
+   * return strings (`toLocaleString`, `toFixed`, `join`, `String`, …), which
+   * need no configuration.
    *
    * Matched against the final identifier of the callee, so `"formatMessage"`
    * covers both `formatMessage(...)` and `intl.formatMessage(...)`.

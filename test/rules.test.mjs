@@ -192,7 +192,7 @@ export const A = ({ val, amount }: any) => (
     errors: [`4: ${CONDITIONAL}`],
   },
   {
-    name: "built-in stringifier returning text",
+    name: "built-in stringifier needs no configuration",
     code: `
 export const A = ({ val, date }: any) => (
   <p>
@@ -200,7 +200,39 @@ export const A = ({ val, date }: any) => (
     <span>x</span>
   </p>
 );`,
-    options: { textReturningFunctions: ["toLocaleString"] },
+    errors: [`4: ${CONDITIONAL}`],
+  },
+  {
+    name: "Array#join needs no configuration",
+    code: `
+export const A = ({ val, items }: any) => (
+  <p>
+    {val ? items.join(", ") : <span>b</span>}
+    <span>x</span>
+  </p>
+);`,
+    errors: [`4: ${CONDITIONAL}`],
+  },
+  {
+    name: "String() needs no configuration",
+    code: `
+export const A = ({ val, n }: any) => (
+  <p>
+    {val ? String(n) : <span>b</span>}
+    <span>x</span>
+  </p>
+);`,
+    errors: [`4: ${CONDITIONAL}`],
+  },
+  {
+    name: "Number#toFixed needs no configuration",
+    code: `
+export const A = ({ val, n }: any) => (
+  <p>
+    {val ? n.toFixed(2) : <span>b</span>}
+    <span>x</span>
+  </p>
+);`,
     errors: [`4: ${CONDITIONAL}`],
   },
   {
@@ -381,7 +413,7 @@ export const A = ({ obj }: any) => (
     errors: [],
   },
   {
-    name: "no function is assumed to return text without options",
+    name: "no project helper is assumed to return text without options",
     code: `
 export const A = ({ val, t, intl }: any) => (
   <p>
@@ -402,6 +434,18 @@ export const A = ({ val, i18n }: any) => (
   </p>
 );`,
     options: { textReturningFunctions: ["t", "formatMessage"] },
+    errors: [],
+  },
+  {
+    name: "ambiguous built-ins stay out of the list",
+    code: `
+export const A = ({ val, items }: any) => (
+  <p>
+    {val ? items.slice(0, 2) : <span>b</span>}
+    {val ? items.concat(items) : <span>c</span>}
+    <span>x</span>
+  </p>
+);`,
     errors: [],
   },
   {

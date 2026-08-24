@@ -216,15 +216,46 @@ const DEFAULT_WRAP_WITH = "span";
 const optionsOf = (context) =>
   (context.options && context.options[0]) || Object.create(null);
 
+// Guaranteed by the language to return a string, so these need no configuring:
+// unlike a project's own helpers, `toLocaleString` is not a name whose meaning a
+// codebase gets to choose. Deliberately limited to that guarantee -- `format` and
+// `t` are conventions and stay opt-in, and `slice`/`concat` are omitted because
+// the Array versions return arrays.
+const BUILT_IN_TEXT_RETURNING_FUNCTIONS = new Set([
+  "String",
+  "stringify",
+  "join",
+  "toString",
+  "toLocaleString",
+  "toFixed",
+  "toPrecision",
+  "toExponential",
+  "toISOString",
+  "toUTCString",
+  "toDateString",
+  "toTimeString",
+  "toLocaleDateString",
+  "toLocaleTimeString",
+  "toUpperCase",
+  "toLowerCase",
+  "trim",
+]);
+
 // Stands in for the type checker oxlint does not give a JS plugin: whether a
-// call returns a string or a ReactElement is knowable only from its type, so a
-// project names the ones that return text. No default list -- these names are a
-// project's own convention, and a built-in guess at something as generic as `t`
-// reports whatever else happens to be named that while still missing every
-// project that calls its helpers something else.
+// call returns a string or a ReactElement is knowable only from its type. The
+// built-ins above are settled by the language; everything else is a project's
+// own convention, and guessing at something as generic as `t` would report
+// whatever else happens to be named that while still missing every project that
+// calls its helpers something else -- so the rest is listed here or not at all.
 const textReturningFunctionsOf = (context) => {
   const configured = optionsOf(context).textReturningFunctions;
   return new Set(Array.isArray(configured) ? configured : []);
+};
+
+const isTextReturningCall = (node, configured) => {
+  const name = calleeName(node.callee);
+  if (name === null) return false;
+  return BUILT_IN_TEXT_RETURNING_FUNCTIONS.has(name) || configured.has(name);
 };
 
 const wrapWithOf = (context) => {
@@ -314,7 +345,7 @@ const noConditionalTextNodesWithSiblings = {
             type: "array",
             items: { type: "string" },
             description:
-              "Names of functions that return a string rather than an element - translators, formatters, `toLocaleString`. Empty by default; nothing is flagged until you list your own. Matched against the final identifier of the callee, so `formatMessage` covers `intl.formatMessage(...)`.",
+              "Names of this project's functions that return a string rather than an element - translators, formatters. Functions the language guarantees return strings (`toLocaleString`, `toFixed`, `join`, `String`, ...) are built in and need no configuration. Matched against the final identifier of the callee, so `formatMessage` covers `intl.formatMessage(...)`.",
           },
           wrapWith: WRAP_WITH_SCHEMA,
         },
@@ -384,13 +415,12 @@ const noConditionalTextNodesWithSiblings = {
         }
       },
       CallExpression(node) {
-        // Without type info a call's text-ness is unknowable, so only the
-        // functions the project named are treated as returning text. No arity
-        // check: upstream required an argument because `t()` always takes a
-        // key, but a named zero-argument formatter -- `toLocaleString()`,
-        // `getLabel()` -- returns text just the same.
-        if (textReturningFunctions.size === 0) return;
-        if (!textReturningFunctions.has(calleeName(node.callee))) return;
+        // Without type info a call's text-ness is unknowable, so a call counts
+        // only when the language guarantees a string or the project named it.
+        // No arity check: upstream required an argument because `t()` always
+        // takes a key, but a zero-argument `toLocaleString()` returns text just
+        // the same.
+        if (!isTextReturningCall(node, textReturningFunctions)) return;
         if (isProblematicConditional(node)) {
           report(node, CONDITIONAL_TEXT_NODE);
         } else if (

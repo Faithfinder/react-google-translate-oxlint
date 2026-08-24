@@ -12,10 +12,15 @@ All notable changes to this fork are documented here. This project adheres to
   `--fix` because the wrapper adds a DOM node that CSS can notice (`> *`
   selectors, flex/grid child counts). No suggestion is offered in `.ts`/`.mts`/
   `.cts` files, where JSX does not parse.
-- **Rule options.** `textReturningFunctions` names the functions whose return
-  value renders as bare text — the rule's stand-in for the type information
-  oxlint does not expose to a JS plugin. `wrapWith` chooses the element the
-  suggestion uses.
+- **Built-in stringifiers are flagged with no configuration.** `toLocaleString`,
+  `toString`, `toFixed`, `toISOString`, `join`, `String`, `trim` and friends are
+  guaranteed by the language to return a string, so `{cond ? n.toFixed(2) : <b/>}`
+  now reports out of the box. `slice` and `concat` are deliberately excluded —
+  the `Array` versions return arrays, so the name alone does not settle it.
+- **Rule options.** `textReturningFunctions` names your *project's* text-returning
+  functions — translators, formatters — on top of those built-ins. It is the
+  rule's stand-in for the type information oxlint does not expose to a JS plugin.
+  `wrapWith` chooses the element the suggestion uses.
 - **Per-rule documentation** under `docs/rules/`, linked from each rule's
   `meta.docs.url` so oxlint can point users at it.
 - **TypeScript declarations** (`index.d.ts`), so `oxlint.config.ts` users get a
@@ -54,6 +59,10 @@ All notable changes to this fork are documented here. This project adheres to
   that — `formatCurrency(x)` and `date.toLocaleString()` are exactly as
   dangerous, and an option called `i18nFunctions` would never have prompted
   anyone to list them.
+
+  The line now falls on who decides a name's meaning: what the language settles
+  (`toLocaleString`) is built in, what a project settles (`t`, `formatCurrency`)
+  is configured.
 
   **Migration:** if you relied on the previous behaviour, restore it explicitly:
 

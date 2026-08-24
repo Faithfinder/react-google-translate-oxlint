@@ -1,0 +1,13 @@
+version: 2
+updates:
+  # oxlint is the peer this plugin is written against and it moves fast, so its
+  # updates are worth seeing as PRs that run the compat matrix.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

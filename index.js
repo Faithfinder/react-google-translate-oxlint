@@ -17,7 +17,12 @@
  *   -> {cond ? <span>foo</span> : <span>bar</span>} <span>x</span>
  */
 
+const DOCS_BASE =
+  "https://github.com/Faithfinder/react-google-translate-oxlint/blob/main/docs/rules";
+
 const startOf = (node) => (node.range ? node.range[0] : node.start);
+
+const rangeOf = (node) => (node.range ? node.range : [node.start, node.end]);
 
 const isWhitespace = (node) =>
   (node.type === "Literal" &&
@@ -37,8 +42,12 @@ const isConditionallyRendered = (node) =>
 const isChildOfJSXExpressionContainer = (node) =>
   node.parent && node.parent.type === "JSXExpressionContainer";
 
-const isChildOfJSXElement = (node) =>
-  node.parent && node.parent.type === "JSXElement";
+// A fragment holds children exactly as an element does, so `<>{cond ? 'a' :
+// 'b'}<span/></>` is the same hazard as the element form. Checking only
+// JSXElement here left every fragment-rooted component unexamined.
+const isChildOfJSXParent = (node) =>
+  node.parent &&
+  (node.parent.type === "JSXElement" || node.parent.type === "JSXFragment");
 
 const hasSiblings = (node) =>
   node.parent &&
@@ -67,7 +76,7 @@ const isProblematicConditional = (node) => {
   const outermost = getOutermostConditional(node);
   return (
     isChildOfJSXExpressionContainer(outermost) &&
-    isChildOfJSXElement(outermost.parent) &&
+    isChildOfJSXParent(outermost.parent) &&
     hasSiblings(outermost.parent)
   );
 };
@@ -148,6 +157,20 @@ const isInertEmptyString = (node) => {
 const isJsx = (node) =>
   !!node && (node.type === "JSXElement" || node.type === "JSXFragment");
 
+// `format(...)`, `intl.formatMessage(...)` and `d.toLocaleString()` all name the
+// function in the final identifier of the callee, so match on that rather than
+// insisting on a bare identifier — a member callee is the more common shape.
+const calleeName = (callee) => {
+  if (!callee) return null;
+  if (callee.type === "Identifier") return callee.name;
+  if (callee.type === "MemberExpression" && !callee.computed) {
+    return callee.property && callee.property.type === "Identifier"
+      ? callee.property.name
+      : null;
+  }
+  return null;
+};
+
 // `items?.map((i) => <li />)` builds a ReactElement[], never a bare text node.
 // Only claimed when the callback demonstrably returns JSX, so `items?.map(String)`
 // stays reported.
@@ -184,25 +207,168 @@ const returnsJsxForEachItem = (node) => {
   return returns.length > 0 && returns.every((r) => isJsx(r.argument));
 };
 
+/* -------------------------------------------------------------------------- */
+/* options                                                                     */
+/* -------------------------------------------------------------------------- */
+
+const DEFAULT_WRAP_WITH = "span";
+
+const optionsOf = (context) =>
+  (context.options && context.options[0]) || Object.create(null);
+
+// Guaranteed by the language to return a string, so these need no configuring:
+// unlike a project's own helpers, `toLocaleString` is not a name whose meaning a
+// codebase gets to choose. Deliberately limited to that guarantee -- `format` and
+// `t` are conventions and stay opt-in, and `slice`/`concat` are omitted because
+// the Array versions return arrays.
+const BUILT_IN_TEXT_RETURNING_FUNCTIONS = new Set([
+  "String",
+  "stringify",
+  "join",
+  "toString",
+  "toLocaleString",
+  "toFixed",
+  "toPrecision",
+  "toExponential",
+  "toISOString",
+  "toUTCString",
+  "toDateString",
+  "toTimeString",
+  "toLocaleDateString",
+  "toLocaleTimeString",
+  "toUpperCase",
+  "toLowerCase",
+  "trim",
+]);
+
+// Stands in for the type checker oxlint does not give a JS plugin: whether a
+// call returns a string or a ReactElement is knowable only from its type. The
+// built-ins above are settled by the language; everything else is a project's
+// own convention, and guessing at something as generic as `t` would report
+// whatever else happens to be named that while still missing every project that
+// calls its helpers something else -- so the rest is listed here or not at all.
+const textReturningFunctionsOf = (context) => {
+  const configured = optionsOf(context).textReturningFunctions;
+  return new Set(Array.isArray(configured) ? configured : []);
+};
+
+const isTextReturningCall = (node, configured) => {
+  const name = calleeName(node.callee);
+  if (name === null) return false;
+  return BUILT_IN_TEXT_RETURNING_FUNCTIONS.has(name) || configured.has(name);
+};
+
+const wrapWithOf = (context) => {
+  const configured = optionsOf(context).wrapWith;
+  return typeof configured === "string" && configured.trim()
+    ? configured.trim()
+    : DEFAULT_WRAP_WITH;
+};
+
+const WRAP_WITH_SCHEMA = {
+  type: "string",
+  description: "Element name the suggested fix wraps text in.",
+};
+
+/* -------------------------------------------------------------------------- */
+/* suggestions                                                                 */
+/* -------------------------------------------------------------------------- */
+
+const SUGGEST_WRAP = "wrap-in-element";
+const SUGGEST_WRAP_MESSAGE = "Wrap it in a `<{{tag}}>`.";
+
+// JSX does not parse in a `.ts`/`.mts`/`.cts` file, so a wrapper suggested there
+// would not compile. `.tsx`, `.jsx` and `.js` are all fine.
+const acceptsJsx = (context) => !/\.[cm]?ts$/.test(context.filename || "");
+
+const buildWrapFix = (fixer, context, node, tag) => {
+  if (node.type === "JSXFragment") {
+    // Rewriting the delimiters keeps the children exactly as written, where
+    // wrapping the whole fragment would nest it pointlessly inside the element.
+    return [
+      fixer.replaceTextRange(node.openingFragment.range, `<${tag}>`),
+      fixer.replaceTextRange(node.closingFragment.range, `</${tag}>`),
+    ];
+  }
+  const source = context.sourceCode.getText(node);
+  if (node.type === "JSXText") {
+    // Leave the surrounding whitespace outside the wrapper: JSX collapses it at
+    // line boundaries, so pulling it inside would change what renders.
+    const leading = source.length - source.trimStart().length;
+    const trailing = source.length - source.trimEnd().length;
+    const [start, end] = rangeOf(node);
+    return fixer.replaceTextRange(
+      [start + leading, end - trailing],
+      `<${tag}>${source.trim()}</${tag}>`
+    );
+  }
+  return fixer.replaceText(node, `<${tag}>{${source}}</${tag}>`);
+};
+
+// Offered as a suggestion rather than applied by `--fix`: wrapping is the
+// correct repair for the crash, but it adds a DOM node that CSS can notice
+// (`> *` selectors, flex/grid child counts), so it stays opt-in behind
+// `--fix-suggestions`.
+const wrapSuggestion = (context, node) => {
+  if (!node || !acceptsJsx(context)) return undefined;
+  const tag = wrapWithOf(context);
+  return [
+    {
+      messageId: SUGGEST_WRAP,
+      data: { tag },
+      fix: (fixer) => buildWrapFix(fixer, context, node, tag),
+    },
+  ];
+};
+
+/* -------------------------------------------------------------------------- */
+/* no-conditional-text-nodes-with-siblings                                     */
+/* -------------------------------------------------------------------------- */
+
 const CONDITIONAL_TEXT_NODE = "conditional-text-node";
 const TEXT_NODE_PRECEDED_BY_CONDITIONAL = "text-node-preceded-by-conditional";
 
 const noConditionalTextNodesWithSiblings = {
   meta: {
     type: "problem",
+    hasSuggestions: true,
     docs: {
       description:
         "Conditionally rendered text nodes with siblings should be wrapped in an element (e.g. a `<span>`), otherwise Google Translate can crash React.",
+      url: `${DOCS_BASE}/no-conditional-text-nodes-with-siblings.md`,
     },
-    schema: [],
+    schema: [
+      {
+        type: "object",
+        properties: {
+          textReturningFunctions: {
+            type: "array",
+            items: { type: "string" },
+            description:
+              "Names of this project's functions that return a string rather than an element - translators, formatters. Functions the language guarantees return strings (`toLocaleString`, `toFixed`, `join`, `String`, ...) are built in and need no configuration. Matched against the final identifier of the callee, so `formatMessage` covers `intl.formatMessage(...)`.",
+          },
+          wrapWith: WRAP_WITH_SCHEMA,
+        },
+        additionalProperties: false,
+      },
+    ],
     messages: {
       [CONDITIONAL_TEXT_NODE]:
         "Conditionally rendered text node with siblings. Wrap it in an element (e.g. `<span>`) so Google Translate can't crash React by reparenting the bare text node.",
       [TEXT_NODE_PRECEDED_BY_CONDITIONAL]:
         "Static text node preceded by a conditionally rendered sibling. Wrap it in an element (e.g. `<span>`) so Google Translate can't crash React.",
+      [SUGGEST_WRAP]: SUGGEST_WRAP_MESSAGE,
     },
   },
   create(context) {
+    const textReturningFunctions = textReturningFunctionsOf(context);
+    const report = (node, messageId) =>
+      context.report({
+        node,
+        messageId,
+        suggest: wrapSuggestion(context, node),
+      });
+
     return {
       Literal(node) {
         if (
@@ -212,18 +378,18 @@ const noConditionalTextNodesWithSiblings = {
           !isWhitespace(node) &&
           isProblematicConditional(node)
         ) {
-          context.report({ node, messageId: CONDITIONAL_TEXT_NODE });
+          report(node, CONDITIONAL_TEXT_NODE);
         }
       },
       // conditionally rendered fragments whose children include bare text
       JSXFragment(node) {
         if (containsBareText(node) && isProblematicConditional(node)) {
-          context.report({ node, messageId: CONDITIONAL_TEXT_NODE });
+          report(node, CONDITIONAL_TEXT_NODE);
         }
       },
       TemplateLiteral(node) {
         if (!isWhitespace(node) && isProblematicConditional(node)) {
-          context.report({ node, messageId: CONDITIONAL_TEXT_NODE });
+          report(node, CONDITIONAL_TEXT_NODE);
         }
       },
       JSXText(node) {
@@ -232,81 +398,139 @@ const noConditionalTextNodesWithSiblings = {
           hasSiblings(node) &&
           conditionalSiblingsPrecedeNode(node)
         ) {
-          context.report({
-            node,
-            messageId: TEXT_NODE_PRECEDED_BY_CONDITIONAL,
-          });
+          report(node, TEXT_NODE_PRECEDED_BY_CONDITIONAL);
         }
       },
       MemberExpression(node) {
         if (isCondition(node) || isBinaryExpression(node)) return;
         if (isProblematicConditional(node)) {
-          context.report({ node, messageId: CONDITIONAL_TEXT_NODE });
+          report(node, CONDITIONAL_TEXT_NODE);
         }
       },
       ChainExpression(node) {
         if (isCondition(node) || isBinaryExpression(node)) return;
         if (returnsJsxForEachItem(node)) return;
         if (isProblematicConditional(node)) {
-          context.report({ node, messageId: CONDITIONAL_TEXT_NODE });
+          report(node, CONDITIONAL_TEXT_NODE);
         }
       },
       CallExpression(node) {
-        // Without type info, only flag well-known i18n helpers that return text.
-        if (
-          node.callee &&
-          node.callee.type === "Identifier" &&
-          (node.callee.name === "formatMessage" || node.callee.name === "t") &&
-          node.arguments.length > 0
+        // Without type info a call's text-ness is unknowable, so a call counts
+        // only when the language guarantees a string or the project named it.
+        // No arity check: upstream required an argument because `t()` always
+        // takes a key, but a zero-argument `toLocaleString()` returns text just
+        // the same.
+        if (!isTextReturningCall(node, textReturningFunctions)) return;
+        if (isProblematicConditional(node)) {
+          report(node, CONDITIONAL_TEXT_NODE);
+        } else if (
+          isChildOfJSXParent(node.parent) &&
+          hasSiblings(node.parent) &&
+          conditionalSiblingsPrecedeNode(node.parent)
         ) {
-          if (isProblematicConditional(node)) {
-            context.report({ node, messageId: CONDITIONAL_TEXT_NODE });
-          } else if (
-            isChildOfJSXElement(node.parent) &&
-            hasSiblings(node.parent) &&
-            conditionalSiblingsPrecedeNode(node.parent)
-          ) {
-            context.report({
-              node,
-              messageId: TEXT_NODE_PRECEDED_BY_CONDITIONAL,
-            });
-          }
+          report(node, TEXT_NODE_PRECEDED_BY_CONDITIONAL);
         }
       },
     };
   },
 };
 
+/* -------------------------------------------------------------------------- */
+/* no-return-text-nodes                                                        */
+/* -------------------------------------------------------------------------- */
+
 const RETURN_VALUE_IS_TEXT_NODE = "return-value-is-text-node";
+
+// `memo(...)` and `forwardRef(...)` mark their first argument as a component
+// whatever it is bound to, which makes them worth following even when the result
+// is exported anonymously.
+const COMPONENT_WRAPPERS = new Set(["memo", "forwardRef"]);
+const REACT_BASE_CLASSES = new Set(["Component", "PureComponent"]);
+
+// `_foo`, `$foo` and `1foo` all satisfy `x[0] === x[0].toUpperCase()`, so test
+// for an actual capital instead.
+const isComponentName = (name) =>
+  typeof name === "string" && /^[A-Z]/.test(name);
+
+// A conditional returns text down at least one path, and that path is the
+// dangerous one — `() => cond ? 'a' : 'b'` is as stale-prone as `() => 'a'`.
+const returnsText = (argument) => {
+  if (!argument) return false;
+  if (argument.type === "TemplateLiteral") return true;
+  if (argument.type === "Literal") {
+    return (
+      typeof argument.value === "string" || typeof argument.value === "number"
+    );
+  }
+  if (argument.type === "ConditionalExpression") {
+    return returnsText(argument.consequent) || returnsText(argument.alternate);
+  }
+  if (argument.type === "LogicalExpression") {
+    // The left of `&&` is the test, not a rendered value.
+    return (
+      returnsText(argument.right) ||
+      (argument.operator !== "&&" && returnsText(argument.left))
+    );
+  }
+  return false;
+};
+
+const isComponentWrapperCall = (node) =>
+  !!node &&
+  node.type === "CallExpression" &&
+  COMPONENT_WRAPPERS.has(calleeName(node.callee)) &&
+  node.arguments.length > 0;
+
+// `memo(forwardRef(fn))` nests, so unwrap to the innermost function once rather
+// than reporting from each layer.
+const unwrapComponentFactory = (node) => {
+  let current = node;
+  while (isComponentWrapperCall(current)) current = current.arguments[0];
+  return current;
+};
+
+const isNestedInComponentFactory = (node) =>
+  node.parent &&
+  isComponentWrapperCall(node.parent) &&
+  Object.is(node.parent.arguments[0], node);
 
 const noReturnTextNodes = {
   meta: {
     type: "problem",
+    hasSuggestions: true,
     docs: {
       description:
         "React components should not return a bare string/number. Google Translate can keep displaying a stale value after state changes, with no error — very hard to debug.",
+      url: `${DOCS_BASE}/no-return-text-nodes.md`,
     },
-    schema: [],
+    schema: [
+      {
+        type: "object",
+        properties: { wrapWith: WRAP_WITH_SCHEMA },
+        additionalProperties: false,
+      },
+    ],
     messages: {
       [RETURN_VALUE_IS_TEXT_NODE]:
         "React component returns a bare text node. Wrap it in an element (e.g. `<span>{value}</span>`) so Google Translate can't strand a stale value after re-renders.",
+      [SUGGEST_WRAP]: SUGGEST_WRAP_MESSAGE,
     },
   },
   create(context) {
-    const returnsText = (argument) =>
-      argument &&
-      (argument.type === "TemplateLiteral" ||
-        (argument.type === "Literal" &&
-          (typeof argument.value === "string" ||
-            typeof argument.value === "number")));
+    // Reported against the statement so the message points at the `return`, but
+    // fixed against the value, which is what actually needs wrapping.
+    const report = (node, value) =>
+      context.report({
+        node,
+        messageId: RETURN_VALUE_IS_TEXT_NODE,
+        suggest: wrapSuggestion(context, value),
+      });
 
     // Walk every path that can return from the component body.
     const reportReturns = (node) => {
       if (!node) return;
       if (node.type === "ReturnStatement") {
-        if (returnsText(node.argument)) {
-          context.report({ node, messageId: RETURN_VALUE_IS_TEXT_NODE });
-        }
+        if (returnsText(node.argument)) report(node, node.argument);
         return;
       }
       if (node.type === "BlockStatement") {
@@ -335,24 +559,36 @@ const noReturnTextNodes = {
       }
     };
 
-    // `_foo`, `$foo` and `1foo` all satisfy `x[0] === x[0].toUpperCase()`, so
-    // test for an actual capital instead.
-    const isComponentName = (name) =>
-      typeof name === "string" && /^[A-Z]/.test(name);
-
     const reportFunctionBody = (fn) => {
       if (!fn) return;
-      if (fn.type !== "ArrowFunctionExpression" && fn.type !== "FunctionExpression")
+      if (
+        fn.type !== "ArrowFunctionExpression" &&
+        fn.type !== "FunctionExpression"
+      )
         return;
       // a concise arrow body is itself the return value
       if (fn.body && fn.body.type !== "BlockStatement") {
-        if (returnsText(fn.body)) {
-          context.report({ node: fn.body, messageId: RETURN_VALUE_IS_TEXT_NODE });
-        }
+        if (returnsText(fn.body)) report(fn.body, fn.body);
         return;
       }
       reportReturns(fn.body);
     };
+
+    // `render()` and `render = () => ...` are both ordinary component bodies.
+    const reportClassBody = (node) => {
+      const members = (node.body && node.body.body) || [];
+      for (const member of members) {
+        const key = member.key;
+        if (!key || key.type !== "Identifier" || key.name !== "render") continue;
+        if (member.type === "MethodDefinition") reportReturns(member.value.body);
+        else if (member.type === "PropertyDefinition")
+          reportFunctionBody(member.value);
+      }
+    };
+
+    const isComponentClass = (node) =>
+      isComponentName(node.id && node.id.name) ||
+      REACT_BASE_CLASSES.has(calleeName(node.superClass));
 
     return {
       FunctionDeclaration(node) {
@@ -364,7 +600,23 @@ const noReturnTextNodes = {
       VariableDeclarator(node) {
         const id = node.id;
         if (!id || id.type !== "Identifier" || !isComponentName(id.name)) return;
+        // `const Foo = memo(...)` is handled by the CallExpression visitor, which
+        // also covers the anonymous `export default memo(...)` form.
+        if (isComponentWrapperCall(node.init)) return;
         reportFunctionBody(node.init);
+      },
+      CallExpression(node) {
+        if (!isComponentWrapperCall(node)) return;
+        // Only the outermost wrapper reports, so `memo(forwardRef(fn))` is one
+        // finding rather than one per layer.
+        if (isNestedInComponentFactory(node)) return;
+        reportFunctionBody(unwrapComponentFactory(node));
+      },
+      ClassDeclaration(node) {
+        if (isComponentClass(node)) reportClassBody(node);
+      },
+      ClassExpression(node) {
+        if (isComponentClass(node)) reportClassBody(node);
       },
     };
   },
@@ -373,7 +625,7 @@ const noReturnTextNodes = {
 const plugin = {
   meta: {
     name: "react-google-translate",
-    version: "0.2.0",
+    version: "0.3.0",
   },
   rules: {
     "no-conditional-text-nodes-with-siblings":

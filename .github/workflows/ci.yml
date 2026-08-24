@@ -26,3 +26,64 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
+
+  lint:
+    runs-on: ubuntu-latest
+    name: lint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+
+  # oxlint's own config schema says JS plugins are "in alpha and not subject to
+  # semver", so an API break has to surface as a red build here rather than as a
+  # user's bug report. The floor is the lowest version peerDependencies claims.
+  oxlint-compat:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        oxlint: ["1.47.0", "latest"]
+    name: test (oxlint ${{ matrix.oxlint }})
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm add -D oxlint@${{ matrix.oxlint }}
+      - run: pnpm exec oxlint --version
+      - run: pnpm test
+
+  # main can otherwise accumulate published changes under a version that is
+  # already tagged, which is what `github:...#v0.2.0` installs then silently miss.
+  version:
+    runs-on: ubuntu-latest
+    name: version is unreleased
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fail if published files changed since this version was tagged
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          tag="v$version"
+          if ! git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            echo "$tag is not tagged yet - nothing to compare against."
+            exit 0
+          fi
+          published=$(node -p 'require("./package.json").files.join(" ")')
+          if ! git diff --quiet "$tag" HEAD -- $published; then
+            echo "::error::$tag is already tagged, but these published files have changed since:" >&2
+            git diff --name-only "$tag" HEAD -- $published >&2
+            echo "Bump the version in package.json (and index.js meta) before merging." >&2
+            exit 1
+          fi
+          echo "$tag is tagged and no published file has changed since."

@@ -49,3 +49,13 @@ export function Bad({ val, obj, symbol }: any) {
 export function Stale() {
   return "i am a bare text node";
 }
+
+export const StaleArrow = () => "i am a bare text node";
+
+export const StaleArrowBlock = () => {
+  return "i am a bare text node";
+};
+
+export const StaleFnExpr = function () {
+  return "i am a bare text node";
+};

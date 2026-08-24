@@ -41,3 +41,11 @@ export function Good({ val }: any) {
 export function GoodReturn() {
   return <span>text</span>;
 }
+
+export const GoodArrow = () => <span>text</span>;
+
+// lowercase: a helper, not a component
+export const goodLabel = () => "just a string";
+
+// capitalised but not a function
+export const Config = "some string";

@@ -335,15 +335,36 @@ const noReturnTextNodes = {
       }
     };
 
+    // `_foo`, `$foo` and `1foo` all satisfy `x[0] === x[0].toUpperCase()`, so
+    // test for an actual capital instead.
     const isComponentName = (name) =>
-      typeof name === "string" &&
-      name.length > 0 &&
-      name[0] === name[0].toUpperCase();
+      typeof name === "string" && /^[A-Z]/.test(name);
+
+    const reportFunctionBody = (fn) => {
+      if (!fn) return;
+      if (fn.type !== "ArrowFunctionExpression" && fn.type !== "FunctionExpression")
+        return;
+      // a concise arrow body is itself the return value
+      if (fn.body && fn.body.type !== "BlockStatement") {
+        if (returnsText(fn.body)) {
+          context.report({ node: fn.body, messageId: RETURN_VALUE_IS_TEXT_NODE });
+        }
+        return;
+      }
+      reportReturns(fn.body);
+    };
 
     return {
       FunctionDeclaration(node) {
         if (!node.body || !isComponentName(node.id && node.id.name)) return;
         reportReturns(node.body);
+      },
+      // `const Foo = () => ...` and `const Foo = function () { ... }` are the
+      // dominant component style and were previously unchecked entirely.
+      VariableDeclarator(node) {
+        const id = node.id;
+        if (!id || id.type !== "Identifier" || !isComponentName(id.name)) return;
+        reportFunctionBody(node.init);
       },
     };
   },

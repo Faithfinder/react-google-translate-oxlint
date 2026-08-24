@@ -19,6 +19,21 @@ export function Good({ val }: any) {
       <p>
         {val ? <><b>a</b><i>b</i></> : ""} <span>x</span>
       </p>
+      {/* map() builds a ReactElement[], never a bare text node */}
+      <p>
+        {val ? <b>x</b> : val?.items?.map((i: any) => <input key={i} />)}
+        <span>y</span>
+      </p>
+      {/* a block body counts too, as long as every return is JSX */}
+      <p>
+        {val
+          ? <b>x</b>
+          : val?.items?.flatMap((i: any) => {
+              if (i) return <input key={i} />;
+              return <hr key={i} />;
+            })}
+        <span>y</span>
+      </p>
     </div>
   );
 }

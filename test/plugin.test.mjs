@@ -24,7 +24,7 @@ const count = (output, needle) => output.split(needle).length - 1;
 
 test("flags every dangerous pattern in the bad fixture", () => {
   const output = lint("bad.tsx");
-  assert.equal(count(output, "no-conditional-text-nodes-with-siblings"), 9);
+  assert.equal(count(output, "no-conditional-text-nodes-with-siblings"), 10);
   assert.equal(count(output, "no-return-text-nodes"), 1);
 });
 

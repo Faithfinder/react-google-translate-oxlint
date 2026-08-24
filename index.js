@@ -145,6 +145,45 @@ const isInertEmptyString = (node) => {
   );
 };
 
+const isJsx = (node) =>
+  !!node && (node.type === "JSXElement" || node.type === "JSXFragment");
+
+// `items?.map((i) => <li />)` builds a ReactElement[], never a bare text node.
+// Only claimed when the callback demonstrably returns JSX, so `items?.map(String)`
+// stays reported.
+const returnsJsxForEachItem = (node) => {
+  const call = node.expression;
+  if (!call || call.type !== "CallExpression") return false;
+  const callee = call.callee;
+  if (!callee || callee.type !== "MemberExpression") return false;
+  const name = callee.property && callee.property.name;
+  if (name !== "map" && name !== "flatMap") return false;
+  const fn = call.arguments && call.arguments[0];
+  if (!fn) return false;
+  if (fn.type !== "ArrowFunctionExpression" && fn.type !== "FunctionExpression")
+    return false;
+  if (fn.body && fn.body.type !== "BlockStatement") return isJsx(fn.body);
+  const returns = [];
+  const walk = (n) => {
+    if (!n || typeof n.type !== "string") return;
+    if (
+      n.type === "FunctionDeclaration" ||
+      n.type === "FunctionExpression" ||
+      n.type === "ArrowFunctionExpression"
+    )
+      return;
+    if (n.type === "ReturnStatement") return returns.push(n);
+    for (const k of Object.keys(n)) {
+      if (k === "parent") continue;
+      const v = n[k];
+      if (Array.isArray(v)) v.forEach(walk);
+      else if (v && typeof v.type === "string") walk(v);
+    }
+  };
+  walk(fn.body);
+  return returns.length > 0 && returns.every((r) => isJsx(r.argument));
+};
+
 const CONDITIONAL_TEXT_NODE = "conditional-text-node";
 const TEXT_NODE_PRECEDED_BY_CONDITIONAL = "text-node-preceded-by-conditional";
 
@@ -207,6 +246,7 @@ const noConditionalTextNodesWithSiblings = {
       },
       ChainExpression(node) {
         if (isCondition(node) || isBinaryExpression(node)) return;
+        if (returnsJsxForEachItem(node)) return;
         if (isProblematicConditional(node)) {
           context.report({ node, messageId: CONDITIONAL_TEXT_NODE });
         }

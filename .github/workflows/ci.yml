@@ -18,9 +18,11 @@ jobs:
     name: test (node ${{ matrix.node }})
     steps:
       - uses: actions/checkout@v4
+      # Before setup-node: `cache: pnpm` needs the store path pnpm reports.
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-          cache: npm
-      - run: npm ci
-      - run: npm test
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test

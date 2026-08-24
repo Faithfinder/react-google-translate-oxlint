@@ -18,11 +18,18 @@ jobs:
     name: test (node ${{ matrix.node }})
     steps:
       - uses: actions/checkout@v4
-      # Before setup-node: `cache: pnpm` needs the store path pnpm reports.
+      # pnpm 11 itself requires Node >=22.13, but the plugin supports Node 20 at
+      # runtime, so the two are separated: install under a fixed modern Node,
+      # then switch to the matrix version to actually run the suite.
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node }}
+          node-version: "24"
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm test
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      # `node --test` rather than `pnpm test` — same command as the test script,
+      # but running it through pnpm would drag pnpm onto Node 20 again.
+      - run: node --test

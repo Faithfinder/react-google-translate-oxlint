@@ -32,6 +32,20 @@ npm install --save-dev @faithfinder/oxlint-plugin-react-google-translate
 
 Requires oxlint with JS-plugin support (`>=1.0`).
 
+### Installing from git
+
+The package also installs straight from this repository, which needs no registry
+account and resolves under the same name, so the `jsPlugins` entry below is
+unchanged:
+
+```sh
+npm install --save-dev "github:Faithfinder/react-google-translate-oxlint#v0.2.0"
+```
+
+Pin a tag or a commit SHA rather than a branch — a branch ref is refetched and
+can change under you between installs. There is no build step, so the checkout
+is used as-is.
+
 ## Usage
 
 Register the plugin in `.oxlintrc.json` via `jsPlugins`, then enable the rules

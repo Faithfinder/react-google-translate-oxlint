@@ -144,7 +144,7 @@ export const A = ({ val, obj }: any) => (
     errors: [`4: ${CONDITIONAL}`],
   },
   {
-    name: "bare i18n helper call",
+    name: "bare translator call",
     code: `
 export const A = ({ val, t }: any) => (
   <p>
@@ -152,11 +152,11 @@ export const A = ({ val, t }: any) => (
     <span>x</span>
   </p>
 );`,
-    options: { i18nFunctions: ["t"] },
+    options: { textReturningFunctions: ["t"] },
     errors: [`4: ${CONDITIONAL}`],
   },
   {
-    name: "namespaced i18n helper call",
+    name: "translator called through a member callee",
     code: `
 export const A = ({ val, intl }: any) => (
   <p>
@@ -164,11 +164,11 @@ export const A = ({ val, intl }: any) => (
     <span>x</span>
   </p>
 );`,
-    options: { i18nFunctions: ["formatMessage"] },
+    options: { textReturningFunctions: ["formatMessage"] },
     errors: [`4: ${CONDITIONAL}`],
   },
   {
-    name: "custom i18n helper via options",
+    name: "project-specific translator via options",
     code: `
 export const A = ({ val, i18n }: any) => (
   <p>
@@ -176,7 +176,31 @@ export const A = ({ val, i18n }: any) => (
     <span>x</span>
   </p>
 );`,
-    options: { i18nFunctions: ["translate"] },
+    options: { textReturningFunctions: ["translate"] },
+    errors: [`4: ${CONDITIONAL}`],
+  },
+  {
+    name: "non-i18n formatter returning text",
+    code: `
+export const A = ({ val, amount }: any) => (
+  <p>
+    {val ? formatCurrency(amount) : <span>b</span>}
+    <span>x</span>
+  </p>
+);`,
+    options: { textReturningFunctions: ["formatCurrency"] },
+    errors: [`4: ${CONDITIONAL}`],
+  },
+  {
+    name: "built-in stringifier returning text",
+    code: `
+export const A = ({ val, date }: any) => (
+  <p>
+    {val ? date.toLocaleString() : <span>b</span>}
+    <span>x</span>
+  </p>
+);`,
+    options: { textReturningFunctions: ["toLocaleString"] },
     errors: [`4: ${CONDITIONAL}`],
   },
   {
@@ -357,7 +381,7 @@ export const A = ({ obj }: any) => (
     errors: [],
   },
   {
-    name: "no i18n helper is assumed without options",
+    name: "no function is assumed to return text without options",
     code: `
 export const A = ({ val, t, intl }: any) => (
   <p>
@@ -369,7 +393,7 @@ export const A = ({ val, t, intl }: any) => (
     errors: [],
   },
   {
-    name: "i18n helper not in the configured list",
+    name: "function not in the configured list",
     code: `
 export const A = ({ val, i18n }: any) => (
   <p>
@@ -377,7 +401,7 @@ export const A = ({ val, i18n }: any) => (
     <span>x</span>
   </p>
 );`,
-    options: { i18nFunctions: ["t", "formatMessage"] },
+    options: { textReturningFunctions: ["t", "formatMessage"] },
     errors: [],
   },
   {

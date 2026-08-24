@@ -12,15 +12,17 @@ export interface WrapOption {
 
 export interface NoConditionalTextNodesOptions extends WrapOption {
   /**
-   * Names of helpers that return translated text. Matched against the final
-   * identifier of the callee, so `"formatMessage"` covers both
-   * `formatMessage(...)` and `intl.formatMessage(...)`.
+   * Names of functions that return a string rather than an element —
+   * translators (`t`, `formatMessage`), formatters (`formatCurrency`,
+   * `toLocaleString`), anything whose return value renders as bare text.
    *
-   * Empty by default — no call is treated as text until you list one. Which
-   * helper returns a translated string is a project convention, so there is
-   * deliberately no built-in guess.
+   * Stands in for the type information oxlint does not expose to a JS plugin.
+   * Empty by default — no call is treated as text until you list one.
+   *
+   * Matched against the final identifier of the callee, so `"formatMessage"`
+   * covers both `formatMessage(...)` and `intl.formatMessage(...)`.
    */
-  i18nFunctions?: string[];
+  textReturningFunctions?: string[];
 }
 
 export type NoReturnTextNodesOptions = WrapOption;

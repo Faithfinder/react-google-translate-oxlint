@@ -12,8 +12,10 @@ All notable changes to this fork are documented here. This project adheres to
   `--fix` because the wrapper adds a DOM node that CSS can notice (`> *`
   selectors, flex/grid child counts). No suggestion is offered in `.ts`/`.mts`/
   `.cts` files, where JSX does not parse.
-- **Rule options.** `i18nFunctions` configures which helpers are treated as
-  returning translated text; `wrapWith` chooses the element the suggestion uses.
+- **Rule options.** `textReturningFunctions` names the functions whose return
+  value renders as bare text — the rule's stand-in for the type information
+  oxlint does not expose to a JS plugin. `wrapWith` chooses the element the
+  suggestion uses.
 - **Per-rule documentation** under `docs/rules/`, linked from each rule's
   `meta.docs.url` so oxlint can point users at it.
 - **TypeScript declarations** (`index.d.ts`), so `oxlint.config.ts` users get a
@@ -33,18 +35,25 @@ All notable changes to this fork are documented here. This project adheres to
   `memo(...)`, `forwardRef(...)` (including nested and anonymous
   `export default memo(...)` forms) and a class component's `render` method or
   `render = () => ...` property were all previously unvisited.
-- **i18n helpers are matched through a member callee.** Only a bare `t(...)` or
-  `formatMessage(...)` identifier was recognised, so `intl.formatMessage({...})`
-  — the shape react-intl actually hands you — was missed.
+- **Text-returning calls are matched through a member callee.** Only a bare
+  `t(...)` or `formatMessage(...)` identifier was recognised, so
+  `intl.formatMessage({...})` — the shape react-intl actually hands you — was
+  missed. The arity check went with it: it existed because `t()` always takes a
+  key, but a zero-argument `toLocaleString()` returns text just the same.
 
 ### Removed
 
-- **The hardcoded `t` / `formatMessage` i18n list.** `i18nFunctions` is now empty
+- **The hardcoded `t` / `formatMessage` list.** `textReturningFunctions` is empty
   by default, so no call is treated as returning text until a project lists its
-  own helpers. Which function returns a translated string is a project
-  convention, and a built-in guess at an identifier as generic as `t` reports
-  every unrelated function sharing the name while still missing every other
-  translator.
+  own. These names are a project convention, and a built-in guess at an
+  identifier as generic as `t` reports every unrelated function sharing the name
+  while still missing every project that names its helpers differently.
+
+  The i18n framing went with it. The rule cannot tell whether `foo()` returns a
+  `string` or a `ReactElement`, and translation is only the most familiar case of
+  that — `formatCurrency(x)` and `date.toLocaleString()` are exactly as
+  dangerous, and an option called `i18nFunctions` would never have prompted
+  anyone to list them.
 
   **Migration:** if you relied on the previous behaviour, restore it explicitly:
 
@@ -53,7 +62,7 @@ All notable changes to this fork are documented here. This project adheres to
     "rules": {
       "react-google-translate/no-conditional-text-nodes-with-siblings": [
         "error",
-        { "i18nFunctions": ["t", "formatMessage"] }
+        { "textReturningFunctions": ["t", "formatMessage"] }
       ]
     }
   }

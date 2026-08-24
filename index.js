@@ -157,9 +157,9 @@ const isInertEmptyString = (node) => {
 const isJsx = (node) =>
   !!node && (node.type === "JSXElement" || node.type === "JSXFragment");
 
-// `t(...)`, `intl.formatMessage(...)` and `i18n.t(...)` all name the helper in
-// the final identifier of the callee, so match on that rather than insisting on
-// a bare identifier — a member callee is the more common shape in practice.
+// `format(...)`, `intl.formatMessage(...)` and `d.toLocaleString()` all name the
+// function in the final identifier of the callee, so match on that rather than
+// insisting on a bare identifier — a member callee is the more common shape.
 const calleeName = (callee) => {
   if (!callee) return null;
   if (callee.type === "Identifier") return callee.name;
@@ -216,12 +216,14 @@ const DEFAULT_WRAP_WITH = "span";
 const optionsOf = (context) =>
   (context.options && context.options[0]) || Object.create(null);
 
-// No default list. Which helper returns translated text is a project's
-// convention, not something this plugin can know, and a built-in guess at `t` --
-// as generic an identifier as exists -- reports whatever else happens to be
-// named that. Configure `i18nFunctions` to opt in.
-const i18nFunctionsOf = (context) => {
-  const configured = optionsOf(context).i18nFunctions;
+// Stands in for the type checker oxlint does not give a JS plugin: whether a
+// call returns a string or a ReactElement is knowable only from its type, so a
+// project names the ones that return text. No default list -- these names are a
+// project's own convention, and a built-in guess at something as generic as `t`
+// reports whatever else happens to be named that while still missing every
+// project that calls its helpers something else.
+const textReturningFunctionsOf = (context) => {
+  const configured = optionsOf(context).textReturningFunctions;
   return new Set(Array.isArray(configured) ? configured : []);
 };
 
@@ -308,11 +310,11 @@ const noConditionalTextNodesWithSiblings = {
       {
         type: "object",
         properties: {
-          i18nFunctions: {
+          textReturningFunctions: {
             type: "array",
             items: { type: "string" },
             description:
-              "Names of helpers that return translated text. Empty by default; nothing is flagged until you list your own. Matched against the final identifier of the callee, so `formatMessage` covers `intl.formatMessage(...)`.",
+              "Names of functions that return a string rather than an element - translators, formatters, `toLocaleString`. Empty by default; nothing is flagged until you list your own. Matched against the final identifier of the callee, so `formatMessage` covers `intl.formatMessage(...)`.",
           },
           wrapWith: WRAP_WITH_SCHEMA,
         },
@@ -328,7 +330,7 @@ const noConditionalTextNodesWithSiblings = {
     },
   },
   create(context) {
-    const i18nFunctions = i18nFunctionsOf(context);
+    const textReturningFunctions = textReturningFunctionsOf(context);
     const report = (node, messageId) =>
       context.report({
         node,
@@ -383,14 +385,12 @@ const noConditionalTextNodesWithSiblings = {
       },
       CallExpression(node) {
         // Without type info a call's text-ness is unknowable, so only the
-        // helpers the project named in `i18nFunctions` are treated as text.
-        if (i18nFunctions.size === 0) return;
-        if (
-          !i18nFunctions.has(calleeName(node.callee)) ||
-          node.arguments.length === 0
-        ) {
-          return;
-        }
+        // functions the project named are treated as returning text. No arity
+        // check: upstream required an argument because `t()` always takes a
+        // key, but a named zero-argument formatter -- `toLocaleString()`,
+        // `getLabel()` -- returns text just the same.
+        if (textReturningFunctions.size === 0) return;
+        if (!textReturningFunctions.has(calleeName(node.callee))) return;
         if (isProblematicConditional(node)) {
           report(node, CONDITIONAL_TEXT_NODE);
         } else if (

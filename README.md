@@ -109,20 +109,24 @@ as elements do.
 <p>{val ? "foo" : "bar"}</p>
 ```
 
-**Options** — `i18nFunctions` names the helpers treated as returning translated
-text. It is **empty by default**: which function returns a translated string is
-your project's convention, not something this plugin can know, and guessing at a
-name as generic as `t` reports whatever else happens to be called that. List
-your own to opt in. Names are matched against the final identifier of the
-callee, so `formatMessage` covers `intl.formatMessage(...)` as well as a bare
-call. `wrapWith` (default `"span"`) picks the element the suggestion uses.
+**Options** — `textReturningFunctions` names the functions whose return value
+renders as bare text rather than as an element. oxlint gives a JS plugin no type
+information, so `foo()` could return a string or a `ReactElement` and the rule
+cannot tell; this list is how you supply the answer. Translators are the common
+case, but formatters (`formatCurrency`, `toLocaleString`, `dayjs().format`) are
+the same hazard.
+
+It is **empty by default** — nothing is flagged until you list your own. Names
+match the final identifier of the callee, so `formatMessage` covers
+`intl.formatMessage(...)` as well as a bare call. `wrapWith` (default `"span"`)
+picks the element the suggestion uses.
 
 ```json
 {
   "rules": {
     "react-google-translate/no-conditional-text-nodes-with-siblings": [
       "error",
-      { "i18nFunctions": ["t", "formatMessage"] }
+      { "textReturningFunctions": ["t", "formatMessage", "formatCurrency"] }
     ]
   }
 }
@@ -184,11 +188,12 @@ const label = () => "hello";
   `memo(forwardRef(...))` and anonymous `export default memo(...)`.
 - **Conditional returns are checked.** `() => cond ? "a" : "b"` returns text down
   at least one path; only direct literals were recognised before.
-- **i18n helpers are matched through a member callee**, so
-  `intl.formatMessage({...})` — the shape react-intl hands you — is caught once
-  configured. The names are no longer hardcoded: upstream assumed `t` and
-  `formatMessage`, which both misses every other translator and reports anything
-  else named `t`. `i18nFunctions` is empty by default and you list your own.
+- **Text-returning calls are configurable and matched through a member callee.**
+  Upstream hardcoded `t` and `formatMessage` as bare identifiers, which misses
+  `intl.formatMessage({...})` — the shape react-intl hands you — misses every
+  formatter that is not a translator, and reports anything else named `t`.
+  `textReturningFunctions` is empty by default and you list your own; the arity
+  check went too, so a zero-argument `toLocaleString()` counts.
 
 ### Tooling
 

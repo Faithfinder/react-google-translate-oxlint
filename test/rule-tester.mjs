@@ -83,15 +83,34 @@ const writeCases = (cases) => {
 };
 
 const runOxlint = (dir, extraArgs = []) => {
+  const args = ["-c", ".oxlintrc.json", "--format", "json", ...extraArgs, "."];
   try {
-    return execFileSync(
-      oxlint,
-      ["-c", ".oxlintrc.json", "--format", "json", ...extraArgs, "."],
-      { cwd: dir, encoding: "utf8" }
-    );
+    const stdout = execFileSync(oxlint, args, { cwd: dir, encoding: "utf8" });
+    return { stdout, stderr: "" };
   } catch (error) {
-    // oxlint exits non-zero whenever it reports anything; the JSON is on stdout.
-    return error.stdout ?? "";
+    // oxlint exits non-zero whenever it reports anything, so a non-zero status is
+    // not a failure in itself and the JSON is still on stdout. A failure to spawn
+    // it at all has no streams to salvage, so it stays thrown.
+    if (error.stdout === undefined && error.stderr === undefined) throw error;
+    return { stdout: error.stdout ?? "", stderr: error.stderr ?? "" };
+  }
+};
+
+/**
+ * oxlint also exits non-zero when it never gets as far as linting — a rejected
+ * rule option, a plugin that will not load — and then stdout holds a message
+ * rather than JSON. Parsing that blindly surfaced as `SyntaxError: Unexpected
+ * token 'F'` from inside the harness, which says nothing about the cause, so the
+ * real output is what gets raised.
+ */
+const parseDiagnostics = ({ stdout, stderr }) => {
+  try {
+    return JSON.parse(stdout);
+  } catch {
+    throw new Error(
+      `oxlint produced no parseable JSON — it failed before linting.\n` +
+        `stdout:\n${stdout || "(empty)"}\nstderr:\n${stderr || "(empty)"}`
+    );
   }
 };
 
@@ -103,7 +122,7 @@ const runOxlint = (dir, extraArgs = []) => {
 export function lintCases(cases) {
   const { dir, names } = writeCases(cases);
   try {
-    const parsed = JSON.parse(runOxlint(dir));
+    const parsed = parseDiagnostics(runOxlint(dir));
     const byFile = new Map(names.map((name) => [name, { reports: [], other: [] }]));
     for (const diagnostic of parsed.diagnostics ?? []) {
       const file = (diagnostic.filename ?? "").split("/").pop();
@@ -130,7 +149,9 @@ export function lintCases(cases) {
 export function applySuggestions(cases) {
   const { dir, names } = writeCases(cases);
   try {
-    runOxlint(dir, ["--fix-suggestions"]);
+    // Parsed only to fail loudly: a crash here leaves every case unfixed, which
+    // would otherwise read as "the fixer produced the input".
+    parseDiagnostics(runOxlint(dir, ["--fix-suggestions"]));
     return names.map((name) => readFileSync(join(dir, name), "utf8").trim());
   } finally {
     rmSync(dir, { recursive: true, force: true });

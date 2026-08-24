@@ -6,8 +6,9 @@ import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-// `plugin.meta.version` is what oxlint reports; nothing keeps it in step with
-// the published version except this.
+// `plugin.meta.version` is what oxlint reports, and it is read from
+// `package.json` rather than duplicated — this asserts that wiring, so a broken
+// JSON import cannot ship a plugin that reports the wrong version.
 test("the plugin reports the package version", async () => {
   const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
   const { default: plugin } = await import(join(root, "index.js"));

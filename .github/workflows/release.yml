@@ -17,13 +17,15 @@ jobs:
       NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - uses: actions/checkout@v4
+      # Before setup-node: `cache: pnpm` needs the store path pnpm reports.
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: npm
+          cache: pnpm
           registry-url: https://registry.npmjs.org
-      - run: npm ci
-      - run: npm test
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
       - name: Fail if the tag does not match package.json
         run: |
           tag="${GITHUB_REF_NAME#v}"
@@ -37,8 +39,10 @@ jobs:
       - name: Skip publish when no npm token is configured
         if: env.NPM_TOKEN == ''
         run: echo "NPM_TOKEN is not set - tag created, publish skipped."
+      # --no-git-checks: a tag build is a detached HEAD, which pnpm otherwise
+      # refuses to publish from.
       - name: Publish
         if: env.NPM_TOKEN != ''
-        run: npm publish --provenance --access public
+        run: pnpm publish --provenance --access public --no-git-checks
         env:
           NODE_AUTH_TOKEN: ${{ env.NPM_TOKEN }}

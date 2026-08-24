@@ -27,10 +27,10 @@ by getcouped (MIT). It catches the problem at lint time so you never ship it.
 ## Install
 
 ```sh
-npm install --save-dev @faithfinder/oxlint-plugin-react-google-translate
+pnpm add -D @faithfinder/oxlint-plugin-react-google-translate
 ```
 
-Requires oxlint with JS-plugin support (`>=1.0`).
+Requires oxlint with JS-plugin support (`>=1.0`) and Node `>=22.12`.
 
 ### Installing from git
 
@@ -40,10 +40,10 @@ unchanged:
 
 ```sh
 # a tag, once one is pushed
-npm install --save-dev "github:Faithfinder/react-google-translate-oxlint#v0.2.0"
+pnpm add -D "github:Faithfinder/react-google-translate-oxlint#v0.2.0"
 
 # or any commit
-npm install --save-dev "github:Faithfinder/react-google-translate-oxlint#<sha>"
+pnpm add -D "github:Faithfinder/react-google-translate-oxlint#<sha>"
 ```
 
 Pin a tag or a commit SHA rather than a branch — a branch ref is refetched and
@@ -139,6 +139,17 @@ limited to built-in rules — a custom JS plugin's `context` exposes no
 syntactic cases — string/number literals, template literals, member and
 optional-chain expressions, `t()` / `formatMessage()` calls, and static text
 after a conditional — are all still flagged.
+
+## Development
+
+This repository uses [pnpm](https://pnpm.io) 11 — the version is pinned in
+`packageManager`, so `corepack enable` gets you the right one. pnpm 11 needs
+Node 22.13 or newer.
+
+```sh
+pnpm install
+pnpm test
+```
 
 ## License
 

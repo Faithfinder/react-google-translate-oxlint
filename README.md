@@ -142,7 +142,7 @@ after a conditional — are all still flagged.
 
 ## Development
 
-This repository uses [pnpm](https://pnpm.io) — the version is pinned in
+This repository uses [pnpm](https://pnpm.io) 11 — the version is pinned in
 `packageManager`, so `corepack enable` gets you the right one.
 
 ```sh
